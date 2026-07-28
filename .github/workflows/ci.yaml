@@ -1,0 +1,234 @@
+name: CI
+
+# On every push: build + test (Task 2, AC #2).
+# On a `v*` tag push: additionally cross-compile the AD-14 six-platform
+# release matrix and publish a GitHub release (Task 2, AC #2).
+on:
+  push:
+    tags:
+      - "v*"
+    branches:
+      - "**"
+
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same branch/tag so rapid pushes don't queue
+# up redundant, uncancelled build+test jobs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # discovery/arp and the tcpsyn/udpscan enrichers cgo-bind to libpcap
+      # (gopacket/pcap) even when just compiling for test purposes.
+      - name: Install libpcap headers
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+
+      - name: go build ./...
+        run: go build ./...
+
+      - name: go vet ./...
+        run: go vet ./...
+
+      - name: go test ./...
+        run: go test ./...
+
+  # Builds the fixed six-target matrix from .goreleaser.yaml/AD-14. One
+  # matrix leg per platform, each on the runner OS that can natively
+  # provide (or cross-provide) the C toolchain + libpcap/Npcap headers
+  # gopacket/pcap's cgo bindings need — see .goreleaser.yaml's header
+  # comment for why this can't be a single cross-compiling job.
+  #
+  # Each leg runs `goreleaser build --single-target`, not `goreleaser
+  # release`: OSS GoReleaser has no way to merge binaries built on
+  # different runners into one release (that "split/merge" workflow is a
+  # GoReleaser Pro-only feature) — this project uses the free/OSS
+  # distribution, so the `publish` job below does the archiving/checksum/
+  # GitHub-release step itself once every leg's binary has been
+  # downloaded, rather than through `goreleaser release`.
+  build-release-binaries:
+    name: Build (${{ matrix.id }})
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: linux-amd64
+            os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - id: linux-arm64
+            os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+          - id: linux-arm
+            os: ubuntu-latest
+            goos: linux
+            goarch: arm
+            goarm: "7"
+          - id: darwin-amd64
+            # macos-15-intel is GitHub's last supported Intel macOS image
+            # (x64 hosted runners retire ~Aug 2027) and is paid-tier only
+            # (not part of the free runner minutes) — confirm the repo/org
+            # has billing enabled for it, or this leg won't schedule.
+            os: macos-15-intel
+            goos: darwin
+            goarch: amd64
+          - id: darwin-arm64
+            os: macos-latest
+            goos: darwin
+            goarch: arm64
+          - id: windows-amd64
+            os: windows-latest
+            goos: windows
+            goarch: amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install libpcap (linux/amd64, native)
+        if: matrix.id == 'linux-amd64'
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
+
+      - name: Install cross toolchain + libpcap (linux/arm64)
+        if: matrix.id == 'linux-arm64'
+        run: |
+          sudo dpkg --add-architecture arm64
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu libpcap-dev:arm64
+
+      - name: Install cross toolchain + libpcap (linux/arm)
+        if: matrix.id == 'linux-arm'
+        run: |
+          sudo dpkg --add-architecture armhf
+          echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/armhf.list
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-linux-gnueabihf libpcap-dev:armhf
+
+      # darwin-amd64/darwin-arm64 need no extra install: libpcap headers
+      # ship with the Xcode Command Line Tools already present on
+      # GitHub-hosted macOS runners.
+
+      - name: Set up MinGW-w64 (windows/amd64)
+        if: matrix.id == 'windows-amd64'
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x64
+
+      - name: Download Npcap SDK (windows/amd64)
+        if: matrix.id == 'windows-amd64'
+        shell: bash
+        # --fail: a 404/error response must fail the step, not get silently
+        # unzipped. The checksum is pinned trust-on-first-use against the
+        # exact bytes served at this pinned URL/version — bump both together
+        # if the SDK version above ever changes.
+        run: |
+          curl -fsSL -o npcap-sdk.zip https://npcap.com/dist/npcap-sdk-1.13.zip
+          echo "dad1f2bf1b02b787be08ca4862f99e39a876c1f274bac4ac0cedc9bbc58f94fd  npcap-sdk.zip" | sha256sum -c -
+          mkdir -p "${{ github.workspace }}/npcap-sdk"
+          unzip -q npcap-sdk.zip -d "${{ github.workspace }}/npcap-sdk"
+
+      # Installed as a native binary (not `go run ...@version` at build
+      # time, below) precisely so the next step's GOOS/GOARCH env vars
+      # target only the `nats` build goreleaser performs, not a
+      # recompile of goreleaser itself — `go run` with cross GOOS/GOARCH
+      # set would cross-compile the launcher too and then fail to exec it
+      # on this host with "exec format error".
+      #
+      # Pinned (not @latest): the CLI's own build flags/dist layout are a
+      # dependency of this pipeline (see the publish job's artifact
+      # path/glob), so an upstream change should require a deliberate
+      # version bump here, not silently apply on the next tag push.
+      - name: Install goreleaser
+        shell: bash
+        run: |
+          go install github.com/goreleaser/goreleaser/v2@v2.17.1
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: goreleaser build --single-target --id ${{ matrix.id }}
+        shell: bash
+        env:
+          # --single-target builds only for the *current* GOOS/GOARCH/GOARM
+          # (regardless of what's declared in .goreleaser.yaml) unless these
+          # are set explicitly — without them, every leg would silently
+          # build for its runner's native arch instead of matrix.id's target
+          # (e.g. linux-arm64/linux-arm on an amd64 ubuntu-latest host would
+          # both just build linux/amd64).
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CC: ${{ matrix.id == 'linux-arm64' && 'aarch64-linux-gnu-gcc' || matrix.id == 'linux-arm' && 'arm-linux-gnueabihf-gcc' || '' }}
+          CXX: ${{ matrix.id == 'linux-arm64' && 'aarch64-linux-gnu-g++' || matrix.id == 'linux-arm' && 'arm-linux-gnueabihf-g++' || '' }}
+          CGO_CFLAGS: ${{ matrix.id == 'windows-amd64' && format('-I{0}/npcap-sdk/Include', github.workspace) || '' }}
+          CGO_LDFLAGS: ${{ matrix.id == 'windows-amd64' && format('-L{0}/npcap-sdk/Lib/x64', github.workspace) || '' }}
+        run: goreleaser build --single-target --clean --id ${{ matrix.id }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.id }}
+          path: dist/${{ matrix.id }}_*/**
+          if-no-files-found: error
+
+  publish:
+    name: Package archives & publish GitHub release
+    needs: build-release-binaries
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+
+      - name: Package one archive per platform + checksums.txt
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          mkdir -p ../release
+          for d in */; do
+            id="$(basename "$d")"
+            platform="${id#dist-}"
+            bin_dir=$(find "$d" -mindepth 1 -maxdepth 1 -type d)
+            if [[ -z "$bin_dir" || "$(wc -l <<<"$bin_dir")" -ne 1 ]]; then
+              echo "expected exactly one artifact directory under $d, got: ${bin_dir:-<none>}" >&2
+              exit 1
+            fi
+            name="nats_${platform//-/_}"
+            cp ../README.md "$bin_dir/"
+            if [[ "$platform" == windows-* ]]; then
+              (cd "$bin_dir" && zip -q -r "../../release/${name}.zip" .)
+            else
+              tar -czf "../release/${name}.tar.gz" -C "$bin_dir" .
+            fi
+          done
+          cd ../release
+          sha256sum * > checksums.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true

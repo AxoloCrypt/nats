@@ -1,0 +1,122 @@
+# GoReleaser configuration (schema v2, https://goreleaser.com).
+#
+# AD-14 (architecture spine) fixes the release platform matrix at exactly
+# six targets: linux/amd64, linux/arm64, linux/arm (Android/Termux),
+# darwin/amd64, darwin/arm64, windows/amd64. Removing (or silently adding)
+# a target here is a spine-level decision requiring an explicit
+# ARCHITECTURE-SPINE.md#AD-14 update — it is NOT a routine release-day
+# tweak. `goreleaser_config_test.go` at the repo root fails the build if
+# this list ever drifts from that fixed set, so an accidental removal
+# breaks CI instead of silently shipping fewer platforms.
+#
+# gopacket/pcap (used by discovery/arp and the tcpsyn/udpscan enrichers)
+# is a cgo binding against libpcap/Npcap, so every build below
+# needs CGO_ENABLED=1 plus a matching C toolchain and libpcap headers for
+# its target — see .github/workflows/ci.yaml's release job for how each
+# platform's toolchain is provisioned, and README.md's "Runtime
+# dependencies" section for what end users need installed to actually run
+# the privileged techniques/enrichers.
+version: 2
+
+project_name: nats
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: linux-amd64
+    main: ./cmd/cli
+    binary: nats
+    goos: [linux]
+    goarch: [amd64]
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+
+  - id: linux-arm64
+    main: ./cmd/cli
+    binary: nats
+    goos: [linux]
+    goarch: [arm64]
+    env:
+      - CGO_ENABLED=1
+      - CC=aarch64-linux-gnu-gcc
+      - CXX=aarch64-linux-gnu-g++
+    flags:
+      - -trimpath
+
+  - id: linux-arm
+    main: ./cmd/cli
+    binary: nats
+    goos: [linux]
+    goarch: [arm]
+    goarm: ["7"]
+    env:
+      - CGO_ENABLED=1
+      - CC=arm-linux-gnueabihf-gcc
+      - CXX=arm-linux-gnueabihf-g++
+    flags:
+      - -trimpath
+
+  - id: darwin-amd64
+    main: ./cmd/cli
+    binary: nats
+    goos: [darwin]
+    goarch: [amd64]
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+
+  - id: darwin-arm64
+    main: ./cmd/cli
+    binary: nats
+    goos: [darwin]
+    goarch: [arm64]
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+
+  - id: windows-amd64
+    main: ./cmd/cli
+    binary: nats
+    goos: [windows]
+    goarch: [amd64]
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+
+# NOTE: .github/workflows/ci.yaml's `publish` job does the actual release
+# archiving/checksumming by hand (goreleaser build --single-target, not
+# goreleaser release — see that file's comments for why), so archives/
+# checksum/changelog below are exercised only for local dev snapshots
+# (`goreleaser release --snapshot`), not by CI. name_template is kept
+# aligned with the publish job's `name="nats_${platform//-/_}"` naming
+# (e.g. "nats_linux_arm", not "nats_linux_armv7") so the two don't drift.
+archives:
+  - id: default
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+
+# release.github is left unset so GoReleaser infers owner/repo from the
+# `origin` git remote rather than hardcoding it here.
