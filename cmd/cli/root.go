@@ -11,6 +11,7 @@ import (
 	"nats/core/engine"
 
 	_ "nats/discovery/arp"
+	_ "nats/discovery/blescan"
 	_ "nats/discovery/icmp"
 	_ "nats/discovery/mdns"
 	_ "nats/discovery/ssdp"
@@ -264,7 +265,11 @@ func splitTechniques(s string) []string {
 	return result
 }
 
-func Execute() {
+// init wires the cobra command tree at package load time (rather than
+// inside Execute()) so tests can assert on rootCmd's registered commands
+// and flag sets without invoking Execute(), which parses the real process
+// os.Args.
+func init() {
 	scanCmd.Flags().String("subnet", "", "Subnet to scan, CIDR notation (e.g. 192.168.1.0/24). Unset: auto-detect the local subnet.")
 	scanCmd.Flags().String("techniques", "", "Comma-separated discovery techniques to run instead of the default (arp, icmp, mdns, ssdp). "+
 		"arp typically requires root/sudo (raw packet capture); icmp depends on host config (falls back to a privileged socket only if the unprivileged one fails); mdns and ssdp do not. Default: arp.")
@@ -273,6 +278,10 @@ func Execute() {
 	scanCmd.Flags().String("format", "table", "Output format for the scan summary: table, json, markdown, or plain.")
 	scanCmd.Flags().String("output-file", "", "Additionally write the scan summary to this file, verbatim, alongside the normal stdout output. Unset: stdout only.")
 	rootCmd.AddCommand(scanCmd)
+	rootCmd.AddCommand(bleCmd)
+}
+
+func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
