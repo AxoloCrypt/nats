@@ -143,15 +143,18 @@ func TestRun_CompilesBLEDeviceProfilesInObservedOrder(t *testing.T) {
 
 	appleID := uint16(76)   // Apple, Inc.
 	googleID := uint16(224) // Google
+	txPower := -55
 	RegisterScanner(&fakeScanner{
 		probeOK: true,
 		advertisements: []Advertisement{
-			{Address: "aa:bb:cc:dd:ee:ff", Name: "Pixel Buds", CompanyID: &googleID},
-			{Address: "11:22:33:44:55:66", Name: "AirTag", CompanyID: &appleID},
+			// TX Power present.
+			{Address: "aa:bb:cc:dd:ee:ff", Name: "Pixel Buds", RSSI: -60, TXPower: &txPower, CompanyID: &googleID},
+			// TX Power absent — falls back to EstimateDistance's assumed default.
+			{Address: "11:22:33:44:55:66", Name: "AirTag", RSSI: -70, CompanyID: &appleID},
 			// No Name broadcast and no CompanyID — must compile to an empty
 			// Name (never "unknown"; that substitution is a Writer's job,
 			// Story 4.7) and Vendor "unknown".
-			{Address: "77:88:99:00:11:22"},
+			{Address: "77:88:99:00:11:22", RSSI: -80},
 		},
 	})
 
@@ -181,7 +184,9 @@ func TestRun_CompilesBLEDeviceProfilesInObservedOrder(t *testing.T) {
 		}
 	}
 
-	want := []BLEDeviceProfile{
+	want := []struct {
+		Address, Name, Vendor string
+	}{
 		{Address: "aa:bb:cc:dd:ee:ff", Name: "Pixel Buds", Vendor: "Google"},
 		{Address: "11:22:33:44:55:66", Name: "AirTag", Vendor: "Apple, Inc."},
 		{Address: "77:88:99:00:11:22", Name: "", Vendor: "unknown"},
@@ -189,9 +194,19 @@ func TestRun_CompilesBLEDeviceProfilesInObservedOrder(t *testing.T) {
 	if len(report.Devices) != len(want) {
 		t.Fatalf("expected %d devices in the final Report, got %d: %+v", len(want), len(report.Devices), report.Devices)
 	}
+	// DistanceEstimate's exact numbers aren't pinned by spec (Story 4.3) —
+	// assert its shape structurally rather than against a hardcoded string.
+	// distancePattern is the package-level regex declared in distance_test.go.
 	for i := range want {
-		if report.Devices[i] != want[i] {
-			t.Fatalf("device %d: expected %+v, got %+v", i, want[i], report.Devices[i])
+		got := report.Devices[i]
+		if got.Address != want[i].Address || got.Name != want[i].Name || got.Vendor != want[i].Vendor {
+			t.Fatalf("device %d: expected Address/Name/Vendor %+v, got %+v", i, want[i], got)
+		}
+		if got.DeviceType != "" {
+			t.Fatalf("device %d: expected DeviceType to stay unset (owned by a later story), got %q", i, got.DeviceType)
+		}
+		if !distancePattern.MatchString(got.DistanceEstimate) {
+			t.Fatalf("device %d: expected a well-formed DistanceEstimate, got %q", i, got.DistanceEstimate)
 		}
 	}
 }

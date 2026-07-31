@@ -62,8 +62,9 @@ func Run(ctx context.Context, opts Options) (<-chan Event, error) {
 				// explicit placeholder (AD-11, Story 4.7), not something
 				// core/ble bakes in early. Vendor is the opposite: it
 				// resolves its own "unknown" (AD-5) via DeriveVendor.
-				Name:   adv.Name,
-				Vendor: DeriveVendor(adv),
+				Name:             adv.Name,
+				Vendor:           DeriveVendor(adv),
+				DistanceEstimate: FormatDistance(EstimateDistance(adv.RSSI, adv.TXPower)),
 			}
 			devices = append(devices, profile)
 			select {
