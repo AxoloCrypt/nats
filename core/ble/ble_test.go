@@ -185,11 +185,16 @@ func TestRun_CompilesBLEDeviceProfilesInObservedOrder(t *testing.T) {
 	}
 
 	want := []struct {
-		Address, Name, Vendor string
+		Address, Name, Vendor, DeviceType string
 	}{
-		{Address: "aa:bb:cc:dd:ee:ff", Name: "Pixel Buds", Vendor: "Google"},
-		{Address: "11:22:33:44:55:66", Name: "AirTag", Vendor: "Apple, Inc."},
-		{Address: "77:88:99:00:11:22", Name: "", Vendor: "unknown"},
+		// "Pixel Buds" has no Appearance/ServiceUUIDs, so classification
+		// falls back to the Name keyword signal ("buds" -> audio device).
+		{Address: "aa:bb:cc:dd:ee:ff", Name: "Pixel Buds", Vendor: "Google", DeviceType: DeviceTypeAudioDevice},
+		// "AirTag" likewise falls back to the Name keyword signal ("tag" ->
+		// sensor/tag).
+		{Address: "11:22:33:44:55:66", Name: "AirTag", Vendor: "Apple, Inc.", DeviceType: DeviceTypeSensorTag},
+		// No Name/Appearance/ServiceUUIDs at all -> no signal resolves.
+		{Address: "77:88:99:00:11:22", Name: "", Vendor: "unknown", DeviceType: DeviceTypeUnknown},
 	}
 	if len(report.Devices) != len(want) {
 		t.Fatalf("expected %d devices in the final Report, got %d: %+v", len(want), len(report.Devices), report.Devices)
@@ -202,8 +207,8 @@ func TestRun_CompilesBLEDeviceProfilesInObservedOrder(t *testing.T) {
 		if got.Address != want[i].Address || got.Name != want[i].Name || got.Vendor != want[i].Vendor {
 			t.Fatalf("device %d: expected Address/Name/Vendor %+v, got %+v", i, want[i], got)
 		}
-		if got.DeviceType != "" {
-			t.Fatalf("device %d: expected DeviceType to stay unset (owned by a later story), got %q", i, got.DeviceType)
+		if got.DeviceType != want[i].DeviceType {
+			t.Fatalf("device %d: expected DeviceType %q, got %q", i, want[i].DeviceType, got.DeviceType)
 		}
 		if !distancePattern.MatchString(got.DistanceEstimate) {
 			t.Fatalf("device %d: expected a well-formed DistanceEstimate, got %q", i, got.DistanceEstimate)

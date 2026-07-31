@@ -65,6 +65,7 @@ func Run(ctx context.Context, opts Options) (<-chan Event, error) {
 				Name:             adv.Name,
 				Vendor:           DeriveVendor(adv),
 				DistanceEstimate: FormatDistance(EstimateDistance(adv.RSSI, adv.TXPower)),
+				DeviceType:       ClassifyDeviceType(adv),
 			}
 			devices = append(devices, profile)
 			select {

@@ -84,6 +84,22 @@ func (s *scanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Ad
 	return ch, nil
 }
 
+// Appearance encoding (Story 4.4 Task 2, the one real design decision this
+// story makes): a raw 16-bit GAP Appearance value would be formatted here
+// as a 4-digit lowercase hex string with no "0x" prefix (e.g. "03c0"),
+// matching what core/ble.appearanceCategory (the sole read site) expects.
+// It is never actually written below: the pinned tinygo.org/x/bluetooth
+// v0.15.0's AdvertisementPayload interface exposes LocalName/ServiceUUIDs/
+// ManufacturerData/ServiceData but has no Appearance accessor, and its
+// Linux (BlueZ D-Bus) ScanResult mapping doesn't surface the "Appearance"
+// device property either — the raw value simply isn't obtainable from a
+// central-role scan with this dependency today. Advertisement.Appearance
+// is therefore left at its documented zero value ("" — spine AD-5 marks it
+// optional); core/ble.ClassifyDeviceType degrades to its next signal
+// (ServiceUUIDs, then Name) whenever Appearance doesn't decode, so this
+// gap doesn't block classification. If a future tinygo release (or
+// platform-specific adapter) exposes the raw value, populate it here using
+// the encoding documented above.
 func toAdvertisement(result bluetooth.ScanResult) ble.Advertisement {
 	adv := ble.Advertisement{
 		Address: result.Address.String(),

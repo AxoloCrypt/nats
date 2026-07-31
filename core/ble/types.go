@@ -66,8 +66,7 @@ type Report struct {
 }
 
 // BLEDeviceProfile is the compiled-from-Advertisement device row (spine
-// Structural Seed). DeviceType (Story 4.4) and DistanceEstimate (Story 4.3)
-// are left as their Go zero value ("") until those stories populate them.
+// Structural Seed). DeviceType's possible values are defined in classify.go.
 type BLEDeviceProfile struct {
 	Address          string
 	Name             string
