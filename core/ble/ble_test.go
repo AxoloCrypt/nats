@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,6 +31,75 @@ func (f *fakeScanner) Scan(ctx context.Context, window time.Duration) (<-chan Ad
 	}
 	close(ch)
 	return ch, nil
+}
+
+// drainToDone runs Run and collects every event it emits, failing the test if
+// the channel doesn't close within a bounded time. The timeout is the point:
+// Story 4.6 AC #1 requires the command to "complete cleanly rather than crash
+// or hang" on a degraded path, so a Run that leaks its goroutine and never
+// closes the channel has to fail the test rather than block the suite until
+// Go's package-level 10m panic.
+func drainToDone(t *testing.T, opts Options) []Event {
+	t.Helper()
+
+	events, err := Run(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	var got []Event
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		for evt := range events {
+			got = append(got, evt)
+		}
+	}()
+
+	select {
+	case <-drained:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run's event channel never closed — the scan hung instead of completing")
+	}
+	return got
+}
+
+// assertDegradedDone asserts the shape every skipped-scan path must produce:
+// exactly one event, a Done, carrying exactly one warning Diagnostic and an
+// empty Report. "Exactly one Diagnostic" is the machine-checkable form of
+// Task 2's rule — no second, generic diagnostic may be stacked on top of the
+// one that already explains the empty result.
+func assertDegradedDone(t *testing.T, got []Event) Diagnostic {
+	t.Helper()
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly one event (Done), got %d: %+v", len(got), got)
+	}
+	if got[0].Kind != EventKindDone {
+		t.Fatalf("expected Done, got %v", got[0].Kind)
+	}
+	if len(got[0].Diagnostics) != 1 {
+		t.Fatalf("expected exactly one Diagnostic (no redundant second one stacked on it), got %+v", got[0].Diagnostics)
+	}
+	if got[0].Diagnostics[0].Severity != "warning" {
+		t.Fatalf("expected severity %q — a permission gap is degraded-but-completed, never an error — got %q", "warning", got[0].Diagnostics[0].Severity)
+	}
+	if len(got[0].Report.Devices) != 0 {
+		t.Fatalf("expected an empty Report on a skipped scan, got %+v", got[0].Report)
+	}
+	return got[0].Diagnostics[0]
+}
+
+// assertNoErrorSeverity is the direct guard against core/ble ever growing
+// core/engine's "no devices discovered" error diagnostic (Task 2).
+func assertNoErrorSeverity(t *testing.T, diags []Diagnostic) {
+	t.Helper()
+
+	for _, d := range diags {
+		if d.Severity == "error" {
+			t.Fatalf("core/ble must never emit an error-severity Diagnostic for an empty result set, got: %+v", d)
+		}
+	}
 }
 
 func TestRun_ProbeFailPath(t *testing.T) {
@@ -344,4 +414,111 @@ func TestRun_NeverWritesAnyFileToDisk(t *testing.T) {
 			t.Fatalf("expected no files created by Run() in %s, found: %v", dir.label, names)
 		}
 	}
+}
+
+// TestRun_ProbeFail_SurfacesEachScannerReasonVerbatim is the anti-hardcoding
+// proof for AC #1's "why" half: the warning's Reason is whatever the adapter
+// actually diagnosed, passed straight through. Table-driven across several
+// unrelated reason strings so an implementation that substitutes one fixed,
+// generic sentence — discarding the adapter's real diagnosis — can't pass by
+// happening to match the single string a one-case test asserted.
+func TestRun_ProbeFail_SurfacesEachScannerReasonVerbatim(t *testing.T) {
+	reasons := []string{
+		"Bluetooth permission denied",
+		"Bluetooth adapter unavailable",
+		// The reason discovery/blescan actually produced on the Story 4.1 dev
+		// host, verbatim — a real, long, platform-specific string.
+		"could not activate BlueZ adapter: The name org.bluez was not provided by any .service files",
+	}
+
+	for _, reason := range reasons {
+		t.Run(reason, func(t *testing.T) {
+			orig := scanner
+			defer func() { scanner = orig }()
+			RegisterScanner(&fakeScanner{probeOK: false, probeReason: reason})
+
+			got := drainToDone(t, Options{Window: time.Second})
+
+			diag := assertDegradedDone(t, got)
+			if diag.Reason != reason {
+				t.Fatalf("expected the scanner's own reason %q passed through verbatim, got %q", reason, diag.Reason)
+			}
+			// The "what" half of AC #1: the message has to name the scan that
+			// was skipped, not just report that something went wrong.
+			if !strings.Contains(diag.Message, "BLE scan") {
+				t.Fatalf("expected the message to name what was skipped (the BLE scan), got %q", diag.Message)
+			}
+			assertNoErrorSeverity(t, got[0].Diagnostics)
+		})
+	}
+}
+
+// TestRun_ProbeFail_WithoutAReasonStillExplainsWhy covers the one genuine gap
+// in the probe-fail path: BLEScanner.Probe's contract lets an implementation
+// return ok=false with an empty reason, and cmd/cli's renderDiagnostic drops
+// the "reason:" line entirely when Reason is "". That combination would print
+// a bare "warning: BLE scan skipped" — naming what was skipped but never why,
+// which AC #1 requires both halves of. The fallback is only ever reached when
+// the scanner supplied nothing; a real reason is never replaced (the table
+// test above is what pins that).
+func TestRun_ProbeFail_WithoutAReasonStillExplainsWhy(t *testing.T) {
+	orig := scanner
+	defer func() { scanner = orig }()
+	RegisterScanner(&fakeScanner{probeOK: false, probeReason: ""})
+
+	got := drainToDone(t, Options{Window: time.Second})
+
+	diag := assertDegradedDone(t, got)
+	if strings.TrimSpace(diag.Reason) == "" {
+		t.Fatal("expected a non-empty fallback Reason when the scanner reports no reason of its own, got an empty string")
+	}
+}
+
+// TestRun_ProbeOKWithZeroDevices_IsNotAnError is the story's central
+// judgement call (Task 2). core/engine.Run appends an error-severity "no
+// devices discovered" Diagnostic when a scan finds nothing, because LAN
+// scanning can reasonably assume at least a router is reachable. BLE cannot
+// assume anything of the sort — standing somewhere with nothing broadcasting
+// nearby is an ordinary, unremarkable outcome — so a completed BLE scan that
+// observed zero advertisements must report no diagnostic at all. This test
+// exists to fail loudly if someone later pattern-matches engine.go's block
+// into core/ble.
+func TestRun_ProbeOKWithZeroDevices_IsNotAnError(t *testing.T) {
+	orig := scanner
+	defer func() { scanner = orig }()
+	RegisterScanner(&fakeScanner{probeOK: true, advertisements: nil})
+
+	got := drainToDone(t, Options{Window: time.Second})
+
+	if len(got) != 1 {
+		t.Fatalf("expected exactly one event (Done) when nothing was observed, got %d: %+v", len(got), got)
+	}
+	if got[0].Kind != EventKindDone {
+		t.Fatalf("expected Done, got %v", got[0].Kind)
+	}
+	assertNoErrorSeverity(t, got[0].Diagnostics)
+	if len(got[0].Diagnostics) != 0 {
+		t.Fatalf("a normally-completed scan that simply saw nothing nearby must report no diagnostic at all, got %+v", got[0].Diagnostics)
+	}
+	if len(got[0].Report.Devices) != 0 {
+		t.Fatalf("expected an empty Report, got %+v", got[0].Report)
+	}
+}
+
+// TestRun_NoScannerRegistered_DegradesTheSameWay pins the third skip path
+// (no platform build registered a BLEScanner) to the identical shape as the
+// probe-fail path, so the three skip paths can't drift into reporting the
+// same class of condition at different severities.
+func TestRun_NoScannerRegistered_DegradesTheSameWay(t *testing.T) {
+	orig := scanner
+	defer func() { scanner = orig }()
+	scanner = nil
+
+	got := drainToDone(t, Options{Window: time.Second})
+
+	diag := assertDegradedDone(t, got)
+	if strings.TrimSpace(diag.Reason) == "" {
+		t.Fatal("expected a non-empty Reason explaining why no scan could run")
+	}
+	assertNoErrorSeverity(t, got[0].Diagnostics)
 }

@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -310,4 +313,163 @@ func TestBLECommand_HelpText_DocumentsStatelessnessAndWindowFlag(t *testing.T) {
 	if windowFlag.DefValue != ble.DefaultOptions().Window.String() {
 		t.Fatalf("expected --window default %v, got %v", ble.DefaultOptions().Window, windowFlag.DefValue)
 	}
+}
+
+// probeFailScanner is a real ble.BLEScanner, registered through the real
+// registry, so the degradation tests below drive the actual
+// bleCmd.RunE -> ble.Run -> BLEScanner path end to end rather than stubbing
+// bleRun out. Stubbing bleRun would prove only that cmd/cli prints whatever
+// it is handed; the point of Story 4.6's AC #1 is that the two halves compose
+// — the scanner's refusal reaches the user as a warning and the command still
+// exits cleanly.
+type probeFailScanner struct {
+	reason string
+}
+
+func (p *probeFailScanner) Probe() (bool, string) { return false, p.reason }
+
+func (p *probeFailScanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Advertisement, error) {
+	return nil, errors.New("Scan must never be called once Probe has reported the scan can't run")
+}
+
+// withRegisteredScanner swaps the process-wide registered BLEScanner (the
+// real one is installed by discovery/blescan's init) for the duration of a
+// test and restores it afterwards.
+func withRegisteredScanner(t *testing.T, s ble.BLEScanner) {
+	t.Helper()
+	orig, _ := ble.GetScanner()
+	t.Cleanup(func() { ble.RegisterScanner(orig) })
+	ble.RegisterScanner(s)
+}
+
+// zeroDeviceScanner probes clean and then observes nothing — an ordinary
+// scan in a room with nothing broadcasting nearby, not a failure.
+type zeroDeviceScanner struct{}
+
+func (zeroDeviceScanner) Probe() (bool, string) { return true, "" }
+
+func (zeroDeviceScanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Advertisement, error) {
+	ch := make(chan ble.Advertisement)
+	close(ch)
+	return ch, nil
+}
+
+// diagnosticSeverities extracts the severity token from each rendered
+// diagnostic line, so severity assertions can't be confused by a reason
+// string that happens to contain "error:" or "warning:". renderDiagnostic
+// writes "<severity>: <message>" at column 0 and indents its "  reason:"
+// continuation, which is what distinguishes the two here.
+func diagnosticSeverities(rendered string) []string {
+	var severities []string
+	for _, line := range strings.Split(rendered, "\n") {
+		if line == "" || strings.HasPrefix(line, " ") {
+			continue
+		}
+		severity, _, found := strings.Cut(line, ": ")
+		if found {
+			severities = append(severities, severity)
+		}
+	}
+	return severities
+}
+
+// runWithTimeout runs fn on its own goroutine and fails the test if it hasn't
+// returned in time. AC #1's "completes cleanly rather than crashing or
+// hanging" is otherwise untestable: a RunE that blocks forever would simply
+// stall the suite until Go's package-level 10-minute panic, with nothing
+// pointing at this scenario.
+func runWithTimeout(t *testing.T, timeout time.Duration, fn func() error) error {
+	t.Helper()
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- fn() }()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-time.After(timeout):
+		t.Fatalf("the ble command did not return within %s — it hung instead of completing", timeout)
+		return nil
+	}
+}
+
+// TestBLECommand_PermissionGap_CompletesCleanly is the end-to-end proof of
+// AC #1: with the OS refusing Bluetooth access, nats ble prints a warning
+// naming what was skipped and why, and still exits normally.
+//
+// The nil-error assertion pins ble to scan's existing exit-code convention
+// (root.go's scanCmd.RunE returns nil even on an error-severity Diagnostic —
+// a known, deliberately-deferred limitation from Story 1.1's review). Story
+// 4.6 keeps the two commands consistent; changing that convention
+// project-wide is out of scope here.
+func TestBLECommand_PermissionGap_CompletesCleanly(t *testing.T) {
+	reasons := []string{
+		"Bluetooth permission denied",
+		"Bluetooth adapter unavailable",
+	}
+
+	for _, reason := range reasons {
+		t.Run(reason, func(t *testing.T) {
+			withRegisteredScanner(t, &probeFailScanner{reason: reason})
+
+			withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+				err := runWithTimeout(t, 30*time.Second, func() error {
+					return bleCmd.RunE(bleCmd, nil)
+				})
+				if err != nil {
+					t.Fatalf("expected a clean exit on a permission gap, got: %v", err)
+				}
+
+				diagnostics := diagnosticBuf.String()
+				if !strings.Contains(diagnostics, "warning: BLE scan skipped") {
+					t.Fatalf("expected a warning naming what was skipped, got: %q", diagnostics)
+				}
+				if !strings.Contains(diagnostics, "reason: "+reason) {
+					t.Fatalf("expected the scanner's own reason %q to reach the user, got: %q", reason, diagnostics)
+				}
+				// Checked per line against the severity token only. A
+				// substring search over the whole buffer would also scan the
+				// "  reason: ..." line, and real BlueZ/D-Bus reasons routinely
+				// embed "error:" — that would fail a command that behaved
+				// perfectly, on the strength of the adapter's wording.
+				if severities := diagnosticSeverities(diagnostics); slices.Contains(severities, "error") {
+					t.Fatalf("a permission gap must never be reported at error severity, got severities %v in: %q", severities, diagnostics)
+				}
+				if !strings.Contains(reportBuf.String(), "BLE scan complete.") {
+					t.Fatalf("expected the command to complete normally, got: %q", reportBuf.String())
+				}
+			})
+		})
+	}
+}
+
+// TestBLECommand_ZeroDevicesFound_IsNotReportedAsFailure is the cmd/cli half
+// of Task 2: a scan that ran fine and simply saw nothing nearby prints no
+// diagnostic at all — no "no devices discovered" error borrowed from the LAN
+// vertical, nothing to suggest the user's Bluetooth is broken.
+//
+// Driven through the real registry rather than a bleRun stub, for the same
+// reason as the permission-gap test above: the rule under test lives in
+// core/ble.Run, so a stub that hands back a pre-built diagnostic-free Done
+// would only assert that printing no diagnostics prints no diagnostics, and
+// would stay green if core/ble ever grew engine.Run's "no devices
+// discovered" error — the exact regression this test exists to catch.
+func TestBLECommand_ZeroDevicesFound_IsNotReportedAsFailure(t *testing.T) {
+	withRegisteredScanner(t, zeroDeviceScanner{})
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		err := runWithTimeout(t, 30*time.Second, func() error {
+			return bleCmd.RunE(bleCmd, nil)
+		})
+		if err != nil {
+			t.Fatalf("expected a clean exit for an empty scan, got: %v", err)
+		}
+
+		if diagnosticBuf.Len() != 0 {
+			t.Fatalf("an ordinary empty BLE scan must print no diagnostic at all, got: %q", diagnosticBuf.String())
+		}
+		if !strings.Contains(reportBuf.String(), "BLE scan complete.") {
+			t.Fatalf("expected the command to complete normally, got: %q", reportBuf.String())
+		}
+	})
 }

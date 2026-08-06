@@ -45,10 +45,38 @@ func (s *scanner) Probe() (ok bool, reason string) {
 	return true, ""
 }
 
+// scanStartGrace bounds how long Scan waits to learn whether the scan
+// actually started before handing the channel back to core/ble.Run.
+//
+// It exists because the permission and availability gaps NL-FR-13 is about
+// do not surface from Probe(). In the pinned tinygo.org/x/bluetooth v0.15.0,
+// Adapter.Enable() only opens the system D-Bus and reads
+// org.bluez.Adapter1.Address on Linux — which succeeds when BlueZ is present
+// but Bluetooth is powered off — and on Windows is nothing but
+// ole.RoInitialize, never touching Bluetooth at all. "Bluetooth is switched
+// off" and "scanning is denied by policy" are both reported by Adapter.Scan
+// instead, which fails without ever reaching its event loop and so returns
+// almost immediately. Waiting briefly for that failure is what lets it reach
+// core/ble.Run's err != nil branch and be named in a warning Diagnostic.
+// Without the wait the error was discarded and the user saw a zero-device
+// "BLE scan complete." that is indistinguishable from an empty room —
+// exactly the silent drop NL-FR-13 forbids.
+//
+// This is a bound, not a guarantee: a rejection slower than the grace is
+// still missed and still degrades to a silent empty scan. An exact fix needs
+// a start-confirmation signal, which v0.15.0's Scan does not expose — it
+// fuses starting and running into one blocking call.
+const scanStartGrace = 300 * time.Millisecond
+
 // Scan wraps tinygo's scan-result callback API into a <-chan
 // ble.Advertisement, stopping the scan once window elapses or ctx is
 // cancelled. It never calls Connect or any GATT method — only the
 // scan/advertisement path is observed (NL-AD-2).
+//
+// A scan that fails to start is reported as an error rather than as an empty
+// channel, so core/ble.Run can name it (see scanStartGrace). The cost is that
+// a successful scan takes scanStartGrace longer than window overall, since the
+// handshake precedes the listening window rather than overlapping it.
 func (s *scanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Advertisement, error) {
 	ch := make(chan ble.Advertisement)
 	scanDone := make(chan error, 1)
@@ -61,6 +89,35 @@ func (s *scanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Ad
 			}
 		})
 	}()
+
+	startGrace := time.NewTimer(scanStartGrace)
+	defer startGrace.Stop()
+
+	select {
+	case err := <-scanDone:
+		// scanAdapter returned before the scan could plausibly still be
+		// running, so it never got going. Closing ch here is safe precisely
+		// because scanAdapter has returned: no further callback can fire, so
+		// nothing can send on a closed channel.
+		close(ch)
+		if err != nil {
+			return nil, err
+		}
+		// A nil error this early means the scan started and stopped on its
+		// own without observing anything — unusual, but not a failure, and
+		// an already-closed ch drains to zero advertisements.
+		return ch, nil
+	case <-ctx.Done():
+		_ = stopScanAdapter()
+		go func() {
+			defer close(ch)
+			<-scanDone
+		}()
+		return ch, nil
+	case <-startGrace.C:
+		// Still running after the grace: treat the scan as started and let
+		// the lifecycle goroutine below own the window.
+	}
 
 	go func() {
 		// Waiting on scanDone a second time after stopping ensures the
