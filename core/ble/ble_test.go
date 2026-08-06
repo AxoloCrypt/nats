@@ -3,6 +3,8 @@ package ble
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -212,6 +214,134 @@ func TestRun_CompilesBLEDeviceProfilesInObservedOrder(t *testing.T) {
 		}
 		if !distancePattern.MatchString(got.DistanceEstimate) {
 			t.Fatalf("device %d: expected a well-formed DistanceEstimate, got %q", i, got.DistanceEstimate)
+		}
+	}
+}
+
+// TestRun_TwoConsecutiveCallsAreIndependent is the concrete, automatable
+// proof of AC #1's "two fully independent result sets" requirement
+// (NL-AD-12): back-to-back Run() calls, with the registered BLEScanner
+// swapped between them, must never let the second call's Report see a
+// device from the first. This is the regression guard against someone
+// later adding a well-intentioned in-memory cache/accumulator to core/ble.
+func TestRun_TwoConsecutiveCallsAreIndependent(t *testing.T) {
+	orig := scanner
+	defer func() { scanner = orig }()
+
+	RegisterScanner(&fakeScanner{
+		probeOK: true,
+		advertisements: []Advertisement{
+			{Address: "aa:aa:aa:aa:aa:aa", RSSI: -50},
+		},
+	})
+	firstEvents, err := Run(context.Background(), Options{Window: time.Second})
+	if err != nil {
+		t.Fatalf("first Run failed: %v", err)
+	}
+	var firstReport Report
+	for evt := range firstEvents {
+		if evt.Kind == EventKindDone {
+			firstReport = evt.Report
+		}
+	}
+	if len(firstReport.Devices) != 1 || firstReport.Devices[0].Address != "aa:aa:aa:aa:aa:aa" {
+		t.Fatalf("expected first call's report to contain only aa:aa:aa:aa:aa:aa, got %+v", firstReport.Devices)
+	}
+
+	// Swap in a scanner with a completely different device set and confirm
+	// the second call's Report reflects only the second call's data — never
+	// a union with the first call's devices.
+	RegisterScanner(&fakeScanner{
+		probeOK: true,
+		advertisements: []Advertisement{
+			{Address: "bb:bb:bb:bb:bb:bb", RSSI: -60},
+			{Address: "cc:cc:cc:cc:cc:cc", RSSI: -70},
+		},
+	})
+	secondEvents, err := Run(context.Background(), Options{Window: time.Second})
+	if err != nil {
+		t.Fatalf("second Run failed: %v", err)
+	}
+	var secondReport Report
+	for evt := range secondEvents {
+		if evt.Kind == EventKindDone {
+			secondReport = evt.Report
+		}
+	}
+
+	if len(secondReport.Devices) != 2 {
+		t.Fatalf("expected the second call's report to contain exactly its own 2 devices, got %d: %+v", len(secondReport.Devices), secondReport.Devices)
+	}
+	for _, d := range secondReport.Devices {
+		if d.Address == "aa:aa:aa:aa:aa:aa" {
+			t.Fatalf("second call's report leaked a device from the first call: %+v", secondReport.Devices)
+		}
+	}
+	wantAddrs := map[string]bool{"bb:bb:bb:bb:bb:bb": true, "cc:cc:cc:cc:cc:cc": true}
+	for _, d := range secondReport.Devices {
+		if !wantAddrs[d.Address] {
+			t.Fatalf("unexpected device address in second call's report: %q", d.Address)
+		}
+	}
+}
+
+// TestRun_NeverWritesAnyFileToDisk guards NL-AD-12's "no on-disk cache,
+// database, or history file" clause of AC #1: a full Run() call must leave
+// every location an accidental cache would plausibly land in exactly as
+// empty as it found it. The working directory alone isn't enough — a
+// well-intentioned cache is far more likely to reach for os.UserCacheDir()
+// or $HOME — so HOME and XDG_CACHE_HOME are redirected at temp dirs and
+// checked too. Story 4.7 is what eventually adds an explicit,
+// user-requested --output-file write — additive to stdout, opt-in — which
+// doesn't exist yet at this point in the epic and isn't what this test is
+// guarding against.
+func TestRun_NeverWritesAnyFileToDisk(t *testing.T) {
+	orig := scanner
+	defer func() { scanner = orig }()
+	RegisterScanner(&fakeScanner{
+		probeOK: true,
+		advertisements: []Advertisement{
+			{Address: "aa:bb:cc:dd:ee:ff", RSSI: -50},
+		},
+	})
+
+	// t.Chdir (Go 1.24+) restores the working directory automatically and
+	// fails fast if this test is ever made parallel — process-global state
+	// that a hand-rolled os.Chdir/defer pair silently gets wrong.
+	workDir := t.TempDir()
+	t.Chdir(workDir)
+
+	homeDir := t.TempDir()
+	cacheDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("XDG_CACHE_HOME", cacheDir)
+
+	events, err := Run(context.Background(), Options{Window: time.Second})
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+	for range events {
+		// Drain to completion.
+	}
+
+	for _, dir := range []struct {
+		label string
+		path  string
+	}{
+		{"working directory", workDir},
+		{"$HOME", homeDir},
+		{"$XDG_CACHE_HOME", cacheDir},
+	} {
+		entries, err := os.ReadDir(dir.path)
+		if err != nil {
+			t.Fatalf("failed to read %s: %v", dir.label, err)
+		}
+		if len(entries) != 0 {
+			names := make([]string, len(entries))
+			for i, e := range entries {
+				names[i] = filepath.Join(dir.path, e.Name())
+			}
+			t.Fatalf("expected no files created by Run() in %s, found: %v", dir.label, names)
 		}
 	}
 }
