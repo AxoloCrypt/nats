@@ -71,33 +71,34 @@ func Run(ctx context.Context, opts Options) (<-chan Event, error) {
 	go func() {
 		defer close(ch)
 
-		s, ok := GetScanner()
-		if !ok {
+		// The same Diagnostic slice is carried on both the Event and the
+		// Report: the Event copy is what cmd/cli renders to stderr, the
+		// Report copy is what a machine-readable Writer serializes, and a
+		// skipped scan must be visible through either channel.
+		skipped := func(reason string) {
+			diags := skipDiagnostic(reason)
 			ch <- Event{
 				Kind:        EventKindDone,
-				Diagnostics: skipDiagnostic("no BLEScanner registered"),
-				Report:      Report{},
+				Diagnostics: diags,
+				Report:      Report{Diagnostics: diags},
 			}
+		}
+
+		s, ok := GetScanner()
+		if !ok {
+			skipped("no BLEScanner registered")
 			return
 		}
 
 		probeOK, reason := s.Probe()
 		if !probeOK {
-			ch <- Event{
-				Kind:        EventKindDone,
-				Diagnostics: skipDiagnostic(reason),
-				Report:      Report{},
-			}
+			skipped(reason)
 			return
 		}
 
 		advCh, err := s.Scan(ctx, opts.Window)
 		if err != nil {
-			ch <- Event{
-				Kind:        EventKindDone,
-				Diagnostics: skipDiagnostic(err.Error()),
-				Report:      Report{},
-			}
+			skipped(err.Error())
 			return
 		}
 

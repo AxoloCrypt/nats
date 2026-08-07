@@ -120,7 +120,17 @@ discovery/*  →  core/engine (Merge, Classify)  →  enrich/*  →  report/*
   the final `engine.Report` struct, never engine internals, and picks its
   output format purely from `Report.Devices`/`Report.Diagnostics`.
   `report/internal/render` holds formatting helpers shared across writers
-  (e.g. rendering `OpenPorts`).
+  (e.g. rendering `OpenPorts`, and `SanitizeLine`, which collapses newlines
+  **and tabs** in untrusted values — tabs matter because the table writers
+  delimit columns with `\t`).
+
+- **`report/ble/*`** (`table` default, plus `json`, `markdown`, `plain`) —
+  the BLE vertical's own writer set, mirroring `report/*` but implementing
+  `ble.Writer` against `core/ble.Report`. Registered via
+  `ble.RegisterWriter` into `core/ble`'s registry, which is entirely
+  separate from `core/engine`'s. `report/ble/internal/blerender` holds the
+  shared placeholder/sanitization rules for the three human-readable BLE
+  writers; the JSON one deliberately skips it (see AD-11 below).
 
 - **`cmd/cli`** wires everything together: blank-imports every
   `discovery/*`, `enrich/*`, `report/*` package (so their `init()`s run
@@ -128,14 +138,19 @@ discovery/*  →  core/engine (Merge, Classify)  →  enrich/*  →  report/*
   drives the `<-chan Event` to render a live progress line to stderr, and
   prints the final report to stdout (and optionally a file, verbatim,
   additive to stdout — never a replacement for it). **Every** `Diagnostic`
-  — whether produced by `core/engine` or `cmd/cli` itself — must be
-  printed exclusively through `renderDiagnostic` in `root.go`; nothing
-  else may read a `Diagnostic`'s `Severity`/`Message`/`Reason` fields
-  directly. This is enforced by
+  — whether produced by `core/engine`, `core/ble`, or `cmd/cli` itself —
+  must be printed exclusively through `renderDiagnostic` in `root.go`;
+  nothing else may read a `Diagnostic`'s `Severity`/`Message`/`Reason`
+  fields directly. `core/ble.Diagnostic` is a distinct type (the BLE
+  vertical may not import `core/engine`), and its one sanctioned reader is
+  `renderBLEDiagnostic` in `ble.go`, which only converts it into an
+  `engine.Diagnostic` for `renderDiagnostic` to format — it is a
+  conversion, not a second renderer. This is enforced by
   `cmd/cli/diagnostic_enforcement_test.go`, which uses `go/packages` type
-  info (not name matching) to fail the build if any other function reads
-  those fields — keep that invariant in mind before adding new
-  diagnostic-printing code anywhere.
+  info (not name matching) across `cmd/cli`, `core/engine` **and**
+  `core/ble` to fail the build if any other function reads those fields —
+  keep that invariant in mind before adding new diagnostic-printing code
+  anywhere.
 
 ## Conventions to follow when adding or changing code
 
@@ -159,8 +174,11 @@ discovery/*  →  core/engine (Merge, Classify)  →  enrich/*  →  report/*
 - **Registration is `init()` + blank import only.** A new
   discovery/enrich/report adapter registers itself in an `init()` calling
   `engine.RegisterTechnique`/`RegisterEnricher`/`RegisterWriter`; it becomes
-  reachable by adding a `_ "nats/..."` import in `cmd/cli/root.go`. Nothing
-  else should import a concrete adapter package directly.
+  reachable by adding a `_ "nats/..."` import in the command that drives it
+  — `cmd/cli/root.go` for the LAN vertical, `cmd/cli/ble.go` for the BLE
+  writers (which register via `ble.RegisterWriter` into `core/ble`'s own
+  registry). Nothing else should import a concrete adapter package
+  directly.
 - **`Report`/`Device`/`Diagnostic` are the only contract across layers.**
   `report/*` writers, and anything downstream of `engine.Run`, must only
   depend on those structs — never on discovery/enrich internals.

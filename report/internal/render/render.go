@@ -23,14 +23,21 @@ func FormatPorts(ports []engine.OpenPort) string {
 	return strings.Join(parts, ",")
 }
 
-// SanitizeLine collapses embedded newlines in a field value to spaces.
-// Hostname and Vendor originate from untrusted network data (reverse-DNS,
-// OUI/mDNS/SSDP lookups), so a crafted value containing a newline could
-// otherwise be indistinguishable from a line-oriented writer's own record
-// separators.
+// SanitizeLine collapses embedded record- and column-separator characters in
+// a field value to spaces. Hostname and Vendor (reverse-DNS, OUI/mDNS/SSDP
+// lookups) and a BLE device's broadcast Name all originate from untrusted
+// data, so a crafted value could otherwise be indistinguishable from a
+// writer's own separators.
+//
+// Tabs are collapsed alongside newlines because report/table and
+// report/ble/table delimit their columns with "\t": a name containing a tab
+// would otherwise forge whole cells and push the row's real values into
+// columns past the header, which is the same class of defect as an embedded
+// newline forging a record boundary.
 func SanitizeLine(s string) string {
 	s = strings.ReplaceAll(s, "\r\n", " ")
 	s = strings.ReplaceAll(s, "\n", " ")
 	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\t", " ")
 	return s
 }

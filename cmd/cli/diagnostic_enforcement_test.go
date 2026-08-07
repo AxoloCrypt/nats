@@ -10,23 +10,43 @@ import (
 
 // TestDiagnosticFieldsOnlyReadInRenderDiagnostic is the AD-8 enforcement test
 // committed to during epic planning: every Diagnostic, regardless of whether
-// core/engine or cmd/cli produced it, must be printed through
+// core/engine, core/ble, or cmd/cli produced it, must be printed through
 // renderDiagnostic. This uses type information (not just identifier names)
-// to verify nothing else in either package reads an engine.Diagnostic's
-// Severity, Message, or Reason field — i.e. nobody can bypass the shared
-// renderer with a stray fmt.Println.
+// to verify nothing else in these packages reads a Diagnostic's Severity,
+// Message, or Reason field — i.e. nobody can bypass the shared renderer with
+// a stray fmt.Println.
+//
+// Both Diagnostic types are checked. core/ble defines its own, structurally
+// identical, type because NL-AD-1 forbids core/ble importing core/engine, so
+// a check written against core/engine.Diagnostic alone would silently leave
+// the entire BLE vertical unguarded — exactly the gap Story 4.7's review
+// found, where an invented severity token and message shape in runBLEScan
+// still passed this test.
+//
+// core/ble.Diagnostic has one additional sanctioned reader:
+// renderBLEDiagnostic, which exists solely to convert it into the
+// engine.Diagnostic that renderDiagnostic formats. That conversion is the
+// single code path AC #2 requires, not a second renderer — it produces no
+// output of its own.
 func TestDiagnosticFieldsOnlyReadInRenderDiagnostic(t *testing.T) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
 	}
-	pkgs, err := packages.Load(cfg, "nats/cmd/cli", "nats/core/engine")
+	pkgs, err := packages.Load(cfg, "nats/cmd/cli", "nats/core/engine", "nats/core/ble")
 	if err != nil {
 		t.Fatalf("failed to load packages: %v", err)
 	}
 
 	fieldNames := map[string]bool{"Severity": true, "Message": true, "Reason": true}
 
+	// Diagnostic type -> the one function permitted to read its fields.
+	allowedReader := map[string]string{
+		"core/engine.Diagnostic": "nats/cmd/cli.renderDiagnostic",
+		"core/ble.Diagnostic":    "nats/cmd/cli.renderBLEDiagnostic",
+	}
+
 	var readingFuncs []string
+	seenTypes := map[string]int{}
 	total := 0
 
 	for _, pkg := range pkgs {
@@ -50,12 +70,22 @@ func TestDiagnosticFieldsOnlyReadInRenderDiagnostic(t *testing.T) {
 					if !ok || selection.Recv() == nil {
 						return true
 					}
-					if !strings.Contains(selection.Recv().String(), "core/engine.Diagnostic") {
+					recv := selection.Recv().String()
+					diagType := ""
+					for candidate := range allowedReader {
+						if strings.Contains(recv, candidate) {
+							diagType = candidate
+							break
+						}
+					}
+					if diagType == "" {
 						return true
 					}
 					total++
-					if !(pkg.PkgPath == "nats/cmd/cli" && funcName == "renderDiagnostic") {
-						readingFuncs = append(readingFuncs, pkg.PkgPath+"."+funcName)
+					seenTypes[diagType]++
+					if pkg.PkgPath+"."+funcName != allowedReader[diagType] {
+						readingFuncs = append(readingFuncs,
+							pkg.PkgPath+"."+funcName+" (reads "+diagType+")")
 					}
 					return true
 				})
@@ -64,9 +94,17 @@ func TestDiagnosticFieldsOnlyReadInRenderDiagnostic(t *testing.T) {
 	}
 
 	if total == 0 {
-		t.Fatal("expected at least one Diagnostic field read across cmd/cli and core/engine — test setup is broken")
+		t.Fatal("expected at least one Diagnostic field read across cmd/cli, core/engine and core/ble — test setup is broken")
+	}
+	// Asserted per type, not just in aggregate: a single combined counter
+	// would stay non-zero from the engine side alone even if the BLE half of
+	// the check silently stopped matching anything.
+	for diagType := range allowedReader {
+		if seenTypes[diagType] == 0 {
+			t.Fatalf("expected at least one %s field read — this guard is no longer covering that type", diagType)
+		}
 	}
 	if len(readingFuncs) != 0 {
-		t.Fatalf("Diagnostic fields must only be read inside cmd/cli's renderDiagnostic (AD-8); found reads in: %v", readingFuncs)
+		t.Fatalf("Diagnostic fields must only be read inside their sanctioned renderer (AD-8); found reads in: %v", readingFuncs)
 	}
 }

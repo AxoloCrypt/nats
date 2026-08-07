@@ -29,3 +29,16 @@ type BLEScanner interface {
 	// a nil error is not permitted — core/ble would range over it forever.
 	Scan(ctx context.Context, window time.Duration) (<-chan Advertisement, error)
 }
+
+// Writer renders a final Report as bytes for one output format (spine AD-11)
+// — same shape as base spine's engine.Writer (AD-7), but its own
+// independently-defined type: core/ble must never import core/engine
+// (NL-AD-1's import-boundary rule, unchanged since Story 4.1). Each
+// implementation (report/ble/table, report/ble/json, report/ble/markdown,
+// report/ble/plain) consumes only the Report — never core/ble's live scan
+// state — so a Writer stays decoupled from how a scan produced the devices
+// it renders.
+type Writer interface {
+	Name() string
+	Write(Report) ([]byte, error)
+}

@@ -68,6 +68,55 @@ The three enrichers that run by default and can't be turned off — reverse
 DNS lookup, MAC OUI vendor lookup, and a TCP connect port scan — never need
 elevated privilege.
 
+## Scanning for BLE devices
+
+```
+nats ble [flags]
+```
+
+`nats ble` is fully independent of `nats scan`: it never triggers LAN or
+Wi-Fi discovery, and vice versa. It runs OS-native passive BLE scanning and
+never requires root/sudo — when the OS Bluetooth permission isn't granted,
+`nats` reports why and exits cleanly instead of prompting for elevated
+privilege.
+
+Each run is a single bounded listening window: `nats ble` listens for
+`--window`, reports once, and exits. Nothing is cached, persisted, or
+correlated across runs.
+
+```
+$ nats ble --window 5s
+ADDRESS            NAME       VENDOR      DEVICE TYPE  DISTANCE
+aa:bb:cc:dd:ee:ff  My Watch   Acme Corp   wearable     ~1.2m (±0.4m)
+11:22:33:44:55:66  unknown    unknown     unknown      ~4.8m (±1.9m)
+```
+
+### Flags
+
+| Flag | Default | Description |
+| --- | --- | --- |
+| `--window` | `5s` | Listening window duration, greater than zero (e.g. `5s`, `10s`). |
+| `--format` | `table` | Output format for the BLE scan summary: `table`, `json`, `markdown`, or `plain`. |
+| `--output-file` | *(unset)* | Additionally write the BLE scan summary to this file, verbatim, alongside the normal stdout output. |
+
+Any field a device doesn't broadcast — most commonly its name — renders as
+an explicit `unknown` rather than being left blank or dropped, so a row
+always has the same shape.
+
+The completion line (`BLE scan complete. N devices found.`) and any
+warnings go to **stderr**, so `--format json` output on stdout stays
+parseable:
+
+```
+$ nats ble --format json > devices.json
+BLE scan complete. 2 devices found.
+```
+
+Note that `nats ble --format json` includes a top-level `diagnostics` array
+alongside `devices`. If Bluetooth permission is denied the scan is skipped,
+`devices` is empty, and the reason appears in `diagnostics` — that is how a
+script tells "nothing was nearby" from "the scan never ran".
+
 ### Privilege requirements (root/sudo/Administrator)
 
 Some techniques and enrichers need to open a raw socket or packet capture

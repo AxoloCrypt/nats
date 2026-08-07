@@ -3,7 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -103,9 +106,14 @@ func TestScanCommand_NeverCallsBLERun(t *testing.T) {
 	}
 }
 
-func TestBLECommand_PrintsDiagnosticAndCompletionMessage(t *testing.T) {
+func TestBLECommand_PrintsDiagnosticAndReport(t *testing.T) {
 	origBLERun := bleRun
 	defer func() { bleRun = origBLERun }()
+	// This test asserts on the table writer's "ADDRESS" header, which only
+	// appears because --format resolved to its default. Reset it up front
+	// rather than deferring: the deferred call restored a flag this test
+	// never set, leaving the precondition itself unguaranteed.
+	resetBLEFormatFlag(t)
 
 	bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
 		ch := make(chan ble.Event, 1)
@@ -130,8 +138,11 @@ func TestBLECommand_PrintsDiagnosticAndCompletionMessage(t *testing.T) {
 		if !bytes.Contains(diagnosticBuf.Bytes(), []byte("reason: no adapter")) {
 			t.Fatalf("expected the reason to be rendered, got: %q", diagnosticBuf.String())
 		}
-		if !bytes.Contains(reportBuf.Bytes(), []byte("BLE scan complete.")) {
-			t.Fatalf("expected the completion message, got: %q", reportBuf.String())
+		// A skipped scan still resolves and renders the default writer
+		// against an empty Report — a header-only table (AC #1), not a
+		// stub completion string.
+		if !bytes.Contains(reportBuf.Bytes(), []byte("ADDRESS")) {
+			t.Fatalf("expected the header-only default table report, got: %q", reportBuf.String())
 		}
 	})
 }
@@ -236,6 +247,27 @@ func resetBLEWindowFlag(t *testing.T) {
 	flag := bleCmd.Flags().Lookup("window")
 	if err := flag.Value.Set(flag.DefValue); err != nil {
 		t.Fatalf("failed to restore the window flag: %v", err)
+	}
+	flag.Changed = false
+}
+
+// resetBLEFormatFlag mirrors resetBLEWindowFlag for the "format" flag.
+func resetBLEFormatFlag(t *testing.T) {
+	t.Helper()
+	flag := bleCmd.Flags().Lookup("format")
+	if err := flag.Value.Set(flag.DefValue); err != nil {
+		t.Fatalf("failed to restore the format flag: %v", err)
+	}
+	flag.Changed = false
+}
+
+// resetBLEOutputFileFlag mirrors resetBLEWindowFlag for the "output-file"
+// flag.
+func resetBLEOutputFileFlag(t *testing.T) {
+	t.Helper()
+	flag := bleCmd.Flags().Lookup("output-file")
+	if err := flag.Value.Set(flag.DefValue); err != nil {
+		t.Fatalf("failed to restore the output-file flag: %v", err)
 	}
 	flag.Changed = false
 }
@@ -403,6 +435,11 @@ func runWithTimeout(t *testing.T, timeout time.Duration, fn func() error) error 
 // 4.6 keeps the two commands consistent; changing that convention
 // project-wide is out of scope here.
 func TestBLECommand_PermissionGap_CompletesCleanly(t *testing.T) {
+	// Asserts on the default table writer's "ADDRESS" header below, so the
+	// shared bleCmd's --format must be known-default rather than whatever an
+	// earlier test happened to leave behind.
+	resetBLEFormatFlag(t)
+
 	reasons := []string{
 		"Bluetooth permission denied",
 		"Bluetooth adapter unavailable",
@@ -435,8 +472,11 @@ func TestBLECommand_PermissionGap_CompletesCleanly(t *testing.T) {
 				if severities := diagnosticSeverities(diagnostics); slices.Contains(severities, "error") {
 					t.Fatalf("a permission gap must never be reported at error severity, got severities %v in: %q", severities, diagnostics)
 				}
-				if !strings.Contains(reportBuf.String(), "BLE scan complete.") {
-					t.Fatalf("expected the command to complete normally, got: %q", reportBuf.String())
+				// A skipped scan still resolves and renders the default
+				// writer against an empty Report — a header-only table
+				// (AC #1), proving the command completed normally.
+				if !strings.Contains(reportBuf.String(), "ADDRESS") {
+					t.Fatalf("expected the command to complete normally and render the header-only report, got: %q", reportBuf.String())
 				}
 			})
 		})
@@ -455,6 +495,10 @@ func TestBLECommand_PermissionGap_CompletesCleanly(t *testing.T) {
 // would stay green if core/ble ever grew engine.Run's "no devices
 // discovered" error — the exact regression this test exists to catch.
 func TestBLECommand_ZeroDevicesFound_IsNotReportedAsFailure(t *testing.T) {
+	// Same reason as TestBLECommand_PermissionGap_CompletesCleanly: this
+	// asserts on the default writer's "ADDRESS" header.
+	resetBLEFormatFlag(t)
+
 	withRegisteredScanner(t, zeroDeviceScanner{})
 
 	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
@@ -468,8 +512,463 @@ func TestBLECommand_ZeroDevicesFound_IsNotReportedAsFailure(t *testing.T) {
 		if diagnosticBuf.Len() != 0 {
 			t.Fatalf("an ordinary empty BLE scan must print no diagnostic at all, got: %q", diagnosticBuf.String())
 		}
-		if !strings.Contains(reportBuf.String(), "BLE scan complete.") {
-			t.Fatalf("expected the command to complete normally, got: %q", reportBuf.String())
+		// Zero devices still renders the default writer's header-only table
+		// (AC #1) — proof the command completed normally.
+		if !strings.Contains(reportBuf.String(), "ADDRESS") {
+			t.Fatalf("expected the command to complete normally and render the header-only report, got: %q", reportBuf.String())
+		}
+	})
+}
+
+// bleFormatMarkers pinpoints a substring unique to each writer's rendering
+// of the "Device Type" column/field, distinguishing every format from the
+// other three — mirrors root_test.go's formatMarkers for the LAN vertical.
+var bleFormatMarkers = map[string]string{
+	"table":    "DEVICE TYPE",
+	"json":     "\"deviceType\"",
+	"markdown": "| Device Type |",
+	"plain":    "Device Type:",
+}
+
+func bleDoneEventWithOneDevice() ble.Event {
+	return ble.Event{
+		Kind: ble.EventKindDone,
+		Report: ble.Report{
+			Devices: []ble.BLEDeviceProfile{{Address: "aa:bb:cc:dd:ee:ff", DeviceType: "wearable"}},
+		},
+	}
+}
+
+// TestBLECommand_FormatSelection_EachFormatProducesExactlyOneWritersOutput is
+// Task 6/7's proof of AC #1's "exactly one writer's output is produced":
+// mirrors TestScanCommand_FormatSelection_EachFormatProducesExactlyOneWritersOutput
+// for the BLE vertical.
+func TestBLECommand_FormatSelection_EachFormatProducesExactlyOneWritersOutput(t *testing.T) {
+	origBLERun := bleRun
+	defer func() { bleRun = origBLERun }()
+	bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
+		ch := make(chan ble.Event, 1)
+		ch <- bleDoneEventWithOneDevice()
+		close(ch)
+		return ch, nil
+	}
+
+	for format, marker := range bleFormatMarkers {
+		t.Run(format, func(t *testing.T) {
+			defer resetBLEFormatFlag(t)
+			withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+				if err := bleCmd.Flags().Set("format", format); err != nil {
+					t.Fatalf("failed to set format flag: %v", err)
+				}
+				if err := bleCmd.RunE(bleCmd, nil); err != nil {
+					t.Fatalf("ble command failed: %v", err)
+				}
+
+				out := reportBuf.String()
+				if !strings.Contains(out, marker) {
+					t.Fatalf("expected %q format output to contain %q, got: %q", format, marker, out)
+				}
+				if diagnosticBuf.Len() != 0 {
+					t.Fatalf("expected no diagnostics for a recognized format, got: %q", diagnosticBuf.String())
+				}
+
+				for otherFormat, otherMarker := range bleFormatMarkers {
+					if otherFormat == format {
+						continue
+					}
+					if strings.Contains(out, otherMarker) {
+						t.Fatalf("expected only the %q writer's output, but found %q's marker %q in: %q", format, otherFormat, otherMarker, out)
+					}
+				}
+			})
+		})
+	}
+}
+
+// TestBLECommand_UnrecognizedFormat_ProducesErrorDiagnosticNotSilentDefault
+// mirrors TestScanCommand_UnrecognizedFormat_ProducesErrorDiagnosticNotSilentDefault:
+// an invalid --format is reported immediately, and the scan never starts.
+func TestBLECommand_UnrecognizedFormat_ProducesErrorDiagnosticNotSilentDefault(t *testing.T) {
+	origBLERun := bleRun
+	defer func() { bleRun = origBLERun }()
+	defer resetBLEFormatFlag(t)
+
+	bleRunCalled := false
+	bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
+		bleRunCalled = true
+		ch := make(chan ble.Event, 1)
+		ch <- bleDoneEventWithOneDevice()
+		close(ch)
+		return ch, nil
+	}
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		if err := bleCmd.Flags().Set("format", "yaml"); err != nil {
+			t.Fatalf("failed to set format flag: %v", err)
+		}
+		if err := bleCmd.RunE(bleCmd, nil); err != nil {
+			t.Fatalf("ble command failed: %v", err)
+		}
+
+		if !strings.Contains(diagnosticBuf.String(), `unrecognized output format "yaml"`) {
+			t.Fatalf("expected an unrecognized-format error diagnostic, got: %q", diagnosticBuf.String())
+		}
+		if reportBuf.Len() != 0 {
+			t.Fatalf("expected no report output for an unrecognized format (no silent fallback to table), got: %q", reportBuf.String())
+		}
+	})
+
+	if bleRunCalled {
+		t.Fatal("expected an unrecognized --format to be rejected before the scan runs, but bleRun was invoked")
+	}
+}
+
+// TestBLECommand_OutputFileFlag_WritesByteIdenticalContentToStdoutAndFile
+// mirrors TestScanCommand_OutputFileFlag_WritesByteIdenticalContentToStdoutAndFile:
+// the named file must contain exactly the same bytes as were written to
+// stdout.
+func TestBLECommand_OutputFileFlag_WritesByteIdenticalContentToStdoutAndFile(t *testing.T) {
+	origBLERun := bleRun
+	defer func() { bleRun = origBLERun }()
+	defer resetBLEOutputFileFlag(t)
+	bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
+		ch := make(chan ble.Event, 1)
+		ch <- bleDoneEventWithOneDevice()
+		close(ch)
+		return ch, nil
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "ble-summary.txt")
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		if err := bleCmd.Flags().Set("output-file", outputPath); err != nil {
+			t.Fatalf("failed to set output-file flag: %v", err)
+		}
+		if err := bleCmd.RunE(bleCmd, nil); err != nil {
+			t.Fatalf("ble command failed: %v", err)
+		}
+
+		if diagnosticBuf.Len() != 0 {
+			t.Fatalf("expected no diagnostics on a successful file write, got: %q", diagnosticBuf.String())
+		}
+
+		fileContent, err := os.ReadFile(outputPath)
+		if err != nil {
+			t.Fatalf("expected the output file to exist and be readable: %v", err)
+		}
+		if reportBuf.Len() == 0 {
+			t.Fatal("expected stdout (reportWriter) to still receive the summary")
+		}
+		if !bytes.Equal(fileContent, reportBuf.Bytes()) {
+			t.Fatalf("expected byte-identical content between stdout and file; stdout=%q file=%q", reportBuf.String(), string(fileContent))
+		}
+	})
+}
+
+// TestBLECommand_NoOutputFileFlag_StdoutOnlyBehaviorUnchanged mirrors
+// TestScanCommand_NoOutputFileFlag_StdoutOnlyBehaviorUnchanged: unset
+// --output-file must behave stdout-only, with no file created.
+func TestBLECommand_NoOutputFileFlag_StdoutOnlyBehaviorUnchanged(t *testing.T) {
+	origBLERun := bleRun
+	defer func() { bleRun = origBLERun }()
+	bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
+		ch := make(chan ble.Event, 1)
+		ch <- bleDoneEventWithOneDevice()
+		close(ch)
+		return ch, nil
+	}
+
+	tempDir := t.TempDir()
+	notCreated := filepath.Join(tempDir, "should-not-exist.txt")
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		if err := bleCmd.RunE(bleCmd, nil); err != nil {
+			t.Fatalf("ble command failed: %v", err)
+		}
+
+		if reportBuf.Len() == 0 {
+			t.Fatal("expected stdout (reportWriter) to receive the summary")
+		}
+		if diagnosticBuf.Len() != 0 {
+			t.Fatalf("expected no diagnostics, got: %q", diagnosticBuf.String())
+		}
+		if _, err := os.Stat(notCreated); !os.IsNotExist(err) {
+			t.Fatalf("expected no file to be created when --output-file is unset, stat err: %v", err)
+		}
+	})
+}
+
+// TestBLECommand_PermissionGapDiagnostic_RendersThroughSameDiagnosticPath is
+// Task 7's regression test locking in Task 6's consistency requirement (AC
+// #2): Story 4.6's permission-gap warning must print through the exact same
+// renderBLEDiagnostic -> renderDiagnostic path as every other BLE
+// diagnostic, byte-for-byte identical in shape to a LAN diagnostic rendered
+// through renderDiagnostic directly.
+func TestBLECommand_PermissionGapDiagnostic_RendersThroughSameDiagnosticPath(t *testing.T) {
+	withRegisteredScanner(t, &probeFailScanner{reason: "Bluetooth permission denied"})
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		err := runWithTimeout(t, 30*time.Second, func() error {
+			return bleCmd.RunE(bleCmd, nil)
+		})
+		if err != nil {
+			t.Fatalf("expected a clean exit on a permission gap, got: %v", err)
+		}
+
+		var wantBuf bytes.Buffer
+		renderDiagnostic(&wantBuf, engine.Diagnostic{
+			Severity: "warning",
+			Message:  "BLE scan skipped",
+			Reason:   "Bluetooth permission denied",
+		})
+
+		if diagnosticBuf.String() != wantBuf.String() {
+			t.Fatalf("expected the permission-gap warning to render byte-identically to renderDiagnostic's own output;\n got:  %q\n want: %q",
+				diagnosticBuf.String(), wantBuf.String())
+		}
+	})
+}
+
+// TestBLECommand_AlwaysAnnouncesCompletionOnStderr covers the completion
+// signal that replaced Story 4.1's "BLE scan complete." stub. The stub was
+// removed because it printed to the report writer, where it corrupted
+// --format json; the fix is to move the signal to stderr, not to drop it.
+//
+// The plain/zero-device case is the one that matters: plain renders no bytes
+// for an empty device list and core/ble.Run reports no Diagnostic for an
+// ordinary zero-device scan, so without this line the command would write
+// nothing at all to either stream and the user could not tell a completed
+// scan from one that silently did nothing.
+func TestBLECommand_AlwaysAnnouncesCompletionOnStderr(t *testing.T) {
+	origBLERun := bleRun
+	defer func() { bleRun = origBLERun }()
+
+	tests := []struct {
+		name       string
+		format     string
+		event      ble.Event
+		wantStderr string
+		wantEmpty  bool
+	}{
+		{
+			name:       "zero devices, plain (writer emits nothing)",
+			format:     "plain",
+			event:      ble.Event{Kind: ble.EventKindDone, Report: ble.Report{}},
+			wantStderr: "BLE scan complete. 0 devices found.",
+			wantEmpty:  true,
+		},
+		{
+			name:       "one device is singular",
+			format:     "table",
+			event:      bleDoneEventWithOneDevice(),
+			wantStderr: "BLE scan complete. 1 device found.",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			defer resetBLEFormatFlag(t)
+			if err := bleCmd.Flags().Set("format", tc.format); err != nil {
+				t.Fatalf("failed to set format flag: %v", err)
+			}
+			bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
+				ch := make(chan ble.Event, 1)
+				ch <- tc.event
+				close(ch)
+				return ch, nil
+			}
+
+			withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+				if err := bleCmd.RunE(bleCmd, nil); err != nil {
+					t.Fatalf("ble command failed: %v", err)
+				}
+				if !bytes.Contains(progressBuf.Bytes(), []byte(tc.wantStderr)) {
+					t.Fatalf("expected progress writer to contain %q, got: %q", tc.wantStderr, progressBuf.String())
+				}
+				// The completion line must never reach stdout: it would make
+				// --format json unparseable.
+				if bytes.Contains(reportBuf.Bytes(), []byte("BLE scan complete")) {
+					t.Fatalf("completion line leaked into the report writer: %q", reportBuf.String())
+				}
+				if tc.wantEmpty && reportBuf.Len() != 0 {
+					t.Fatalf("expected plain writer to emit no report bytes for zero devices, got: %q", reportBuf.String())
+				}
+			})
+		})
+	}
+}
+
+// TestBLECommand_FormatFlagIsTrimmedAndCaseInsensitive covers resolveBLEFormat's
+// TrimSpace/ToLower handling, which is the entire reason the function exists
+// and was previously untested.
+func TestBLECommand_FormatFlagIsTrimmedAndCaseInsensitive(t *testing.T) {
+	origBLERun := bleRun
+	defer func() { bleRun = origBLERun }()
+	bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
+		ch := make(chan ble.Event, 1)
+		ch <- bleDoneEventWithOneDevice()
+		close(ch)
+		return ch, nil
+	}
+
+	tests := []struct {
+		format string
+		marker string
+	}{
+		{"  ", "ADDRESS"},           // whitespace-only falls back to the table default
+		{"JSON", `"devices"`},       // uppercase resolves to the json writer
+		{"  markdown  ", "| --- |"}, // surrounding whitespace is trimmed
+	}
+
+	for _, tc := range tests {
+		t.Run("format="+tc.format, func(t *testing.T) {
+			defer resetBLEFormatFlag(t)
+			if err := bleCmd.Flags().Set("format", tc.format); err != nil {
+				t.Fatalf("failed to set format flag: %v", err)
+			}
+			withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+				if err := bleCmd.RunE(bleCmd, nil); err != nil {
+					t.Fatalf("ble command failed: %v", err)
+				}
+				if !bytes.Contains(reportBuf.Bytes(), []byte(tc.marker)) {
+					t.Fatalf("expected --format %q to resolve and emit %q, got: %q", tc.format, tc.marker, reportBuf.String())
+				}
+				if bytes.Contains(diagnosticBuf.Bytes(), []byte("unrecognized output format")) {
+					t.Fatalf("expected --format %q to be accepted, got: %q", tc.format, diagnosticBuf.String())
+				}
+			})
+		})
+	}
+}
+
+// TestBLECommand_WhitespaceOnlyOutputFile_KeepsStdoutOnlyBehavior mirrors
+// root_test.go's equivalent for "nats scan": a whitespace-only --output-file
+// is treated as unset rather than creating a oddly-named file.
+func TestBLECommand_WhitespaceOnlyOutputFile_KeepsStdoutOnlyBehavior(t *testing.T) {
+	origBLERun := bleRun
+	origWrite := writeReportFile
+	defer func() { bleRun = origBLERun; writeReportFile = origWrite }()
+	bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
+		ch := make(chan ble.Event, 1)
+		ch <- bleDoneEventWithOneDevice()
+		close(ch)
+		return ch, nil
+	}
+
+	writeCalled := false
+	writeReportFile = func(name string, data []byte, perm os.FileMode) error {
+		writeCalled = true
+		return nil
+	}
+
+	defer resetBLEOutputFileFlag(t)
+	if err := bleCmd.Flags().Set("output-file", "   "); err != nil {
+		t.Fatalf("failed to set output-file flag: %v", err)
+	}
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		if err := bleCmd.RunE(bleCmd, nil); err != nil {
+			t.Fatalf("ble command failed: %v", err)
+		}
+		if writeCalled {
+			t.Fatal("expected a whitespace-only --output-file to be treated as unset")
+		}
+		if reportBuf.Len() == 0 {
+			t.Fatal("expected the report to still be written to stdout")
+		}
+	})
+}
+
+// TestBLECommand_OutputFileWriteFailure_ProducesErrorDiagnosticAndStdoutStillShown
+// mirrors root_test.go's equivalent: file persistence is strictly additive, so
+// a failure to write it must never suppress the stdout report.
+func TestBLECommand_OutputFileWriteFailure_ProducesErrorDiagnosticAndStdoutStillShown(t *testing.T) {
+	origBLERun := bleRun
+	origWrite := writeReportFile
+	defer func() { bleRun = origBLERun; writeReportFile = origWrite }()
+	bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
+		ch := make(chan ble.Event, 1)
+		ch <- bleDoneEventWithOneDevice()
+		close(ch)
+		return ch, nil
+	}
+	writeReportFile = func(name string, data []byte, perm os.FileMode) error {
+		return errors.New("permission denied")
+	}
+
+	defer resetBLEOutputFileFlag(t)
+	if err := bleCmd.Flags().Set("output-file", "/nonexistent/out.txt"); err != nil {
+		t.Fatalf("failed to set output-file flag: %v", err)
+	}
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		if err := bleCmd.RunE(bleCmd, nil); err != nil {
+			t.Fatalf("ble command failed: %v", err)
+		}
+		if !bytes.Contains(diagnosticBuf.Bytes(), []byte("error: failed to write BLE scan summary to file")) {
+			t.Fatalf("expected an error diagnostic for the failed file write, got: %q", diagnosticBuf.String())
+		}
+		if !bytes.Contains(diagnosticBuf.Bytes(), []byte("reason: permission denied")) {
+			t.Fatalf("expected the underlying reason to be rendered, got: %q", diagnosticBuf.String())
+		}
+		if !bytes.Contains(reportBuf.Bytes(), []byte("ADDRESS")) {
+			t.Fatalf("expected the stdout report to survive a file-write failure, got: %q", reportBuf.String())
+		}
+	})
+}
+
+// TestBLECommand_SkippedScanIsVisibleInJSON covers the Report.Diagnostics
+// field: without it, "nats ble --format json" emits an identical empty device
+// list for an empty room and for a scan that never ran, leaving a scripting
+// consumer unable to tell a successful result from a degraded one.
+func TestBLECommand_SkippedScanIsVisibleInJSON(t *testing.T) {
+	origBLERun := bleRun
+	defer func() { bleRun = origBLERun }()
+	bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
+		diags := []ble.Diagnostic{{
+			Severity: "warning",
+			Message:  "BLE scan skipped",
+			Reason:   "bluetooth permission not granted",
+		}}
+		ch := make(chan ble.Event, 1)
+		ch <- ble.Event{
+			Kind:        ble.EventKindDone,
+			Diagnostics: diags,
+			Report:      ble.Report{Diagnostics: diags},
+		}
+		close(ch)
+		return ch, nil
+	}
+
+	defer resetBLEFormatFlag(t)
+	if err := bleCmd.Flags().Set("format", "json"); err != nil {
+		t.Fatalf("failed to set format flag: %v", err)
+	}
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		if err := bleCmd.RunE(bleCmd, nil); err != nil {
+			t.Fatalf("ble command failed: %v", err)
+		}
+		var payload struct {
+			Devices     []map[string]any `json:"devices"`
+			Diagnostics []struct {
+				Severity string `json:"severity"`
+				Message  string `json:"message"`
+				Reason   string `json:"reason"`
+			} `json:"diagnostics"`
+		}
+		if err := json.Unmarshal(reportBuf.Bytes(), &payload); err != nil {
+			t.Fatalf("expected valid JSON, got %q: %v", reportBuf.String(), err)
+		}
+		if len(payload.Diagnostics) != 1 {
+			t.Fatalf("expected the skip warning to appear in the JSON payload, got: %q", reportBuf.String())
+		}
+		if payload.Diagnostics[0].Reason != "bluetooth permission not granted" {
+			t.Fatalf("expected the verbatim reason in JSON, got: %+v", payload.Diagnostics[0])
+		}
+		// The stderr rendering must still happen — the JSON copy is additive.
+		if !bytes.Contains(diagnosticBuf.Bytes(), []byte("warning: BLE scan skipped")) {
+			t.Fatalf("expected the diagnostic to still render to stderr, got: %q", diagnosticBuf.String())
 		}
 	})
 }
