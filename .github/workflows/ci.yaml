@@ -152,11 +152,15 @@ jobs:
         # unzipped. The checksum is pinned trust-on-first-use against the
         # exact bytes served at this pinned URL/version — bump both together
         # if the SDK version above ever changes.
+        #
+        # Unpacked under RUNNER_TEMP, not the workspace: the SDK is a build
+        # input, and leaving it in the checkout makes the tree dirty, which
+        # goreleaser refuses to build from.
         run: |
-          curl -fsSL -o npcap-sdk.zip https://npcap.com/dist/npcap-sdk-1.13.zip
-          echo "dad1f2bf1b02b787be08ca4862f99e39a876c1f274bac4ac0cedc9bbc58f94fd  npcap-sdk.zip" | sha256sum -c -
-          mkdir -p "${{ github.workspace }}/npcap-sdk"
-          unzip -q npcap-sdk.zip -d "${{ github.workspace }}/npcap-sdk"
+          curl -fsSL -o "$RUNNER_TEMP/npcap-sdk.zip" https://npcap.com/dist/npcap-sdk-1.13.zip
+          echo "dad1f2bf1b02b787be08ca4862f99e39a876c1f274bac4ac0cedc9bbc58f94fd  $RUNNER_TEMP/npcap-sdk.zip" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/npcap-sdk"
+          unzip -q "$RUNNER_TEMP/npcap-sdk.zip" -d "$RUNNER_TEMP/npcap-sdk"
 
       # Installed as a native binary (not `go run ...@version` at build
       # time, below) precisely so the next step's GOOS/GOARCH env vars
@@ -197,8 +201,8 @@ jobs:
           GOARM: ${{ matrix.goarm }}
           CC: ${{ matrix.id == 'linux-arm64' && 'aarch64-linux-gnu-gcc' || matrix.id == 'linux-arm' && 'arm-linux-gnueabihf-gcc' || '' }}
           CXX: ${{ matrix.id == 'linux-arm64' && 'aarch64-linux-gnu-g++' || matrix.id == 'linux-arm' && 'arm-linux-gnueabihf-g++' || '' }}
-          CGO_CFLAGS: ${{ matrix.id == 'windows-amd64' && format('-I{0}/npcap-sdk/Include', github.workspace) || '' }}
-          CGO_LDFLAGS: ${{ matrix.id == 'windows-amd64' && format('-L{0}/npcap-sdk/Lib/x64', github.workspace) || '' }}
+          CGO_CFLAGS: ${{ matrix.id == 'windows-amd64' && format('-I{0}/npcap-sdk/Include', runner.temp) || '' }}
+          CGO_LDFLAGS: ${{ matrix.id == 'windows-amd64' && format('-L{0}/npcap-sdk/Lib/x64', runner.temp) || '' }}
         run: goreleaser build --single-target --clean --id ${{ matrix.id }}
 
       - uses: actions/upload-artifact@v7
