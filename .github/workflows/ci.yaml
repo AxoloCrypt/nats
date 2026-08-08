@@ -103,12 +103,20 @@ jobs:
       # line goes in before `dpkg --add-architecture`. ubuntu-24.04 keeps its
       # sources in deb822 format at sources.list.d/ubuntu.sources (only 22.04
       # still uses the one-line /etc/apt/sources.list).
+      #
+      # The ports list needs -updates/-security too, not just the release
+      # pocket: libc6 is Multi-Arch: same, so every installed architecture of
+      # it must be the *same version*. The image's libc6:amd64 comes from
+      # -updates, so a ports list carrying only base `noble` offers no
+      # matching libc6:arm64 and apt reports held broken packages.
       - name: Install cross toolchain + libpcap (linux/arm64)
         if: matrix.id == 'linux-arm64'
         run: |
           sudo sed -i '/^Types: deb/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
           sudo dpkg --add-architecture arm64
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
+          for pocket in "" -updates -security; do
+            echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)${pocket} main universe"
+          done | sudo tee /etc/apt/sources.list.d/arm64.list
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu libpcap-dev:arm64
 
@@ -118,7 +126,9 @@ jobs:
         run: |
           sudo sed -i '/^Types: deb/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
           sudo dpkg --add-architecture armhf
-          echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/armhf.list
+          for pocket in "" -updates -security; do
+            echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs)${pocket} main universe"
+          done | sudo tee /etc/apt/sources.list.d/armhf.list
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabihf libpcap-dev:armhf
 
@@ -161,6 +171,14 @@ jobs:
       # version bump here, not silently apply on the next tag push.
       - name: Install goreleaser
         shell: bash
+        env:
+          # setup-go v6+ pins GOTOOLCHAIN=local, which is what we want for
+          # building nats itself (it must compile under go.mod's Go version).
+          # But goreleaser's own module requires a newer Go than go.mod
+          # declares, and under GOTOOLCHAIN=local `go install` refuses to
+          # fetch one and fails. Scoped to this step so only the tool build
+          # may pull a newer toolchain.
+          GOTOOLCHAIN: auto
         run: |
           go install github.com/goreleaser/goreleaser/v2@v2.17.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
