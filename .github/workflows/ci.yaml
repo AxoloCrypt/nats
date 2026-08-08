@@ -231,7 +231,12 @@ jobs:
         working-directory: dist
         run: |
           set -euo pipefail
-          mkdir -p ../release
+          # Absolute, so archive paths don't depend on how deep $bin_dir sits
+          # under dist/ — the zip branch previously wrote to "../../release"
+          # from inside $bin_dir, which is two levels down, and so resolved to
+          # a nonexistent dist/release.
+          release="$GITHUB_WORKSPACE/release"
+          mkdir -p "$release"
           for d in */; do
             id="$(basename "$d")"
             platform="${id#dist-}"
@@ -249,12 +254,12 @@ jobs:
             mkdir -p "$bin_dir/docs"
             cp ../docs/USAGE.md "$bin_dir/docs/"
             if [[ "$platform" == windows-* ]]; then
-              (cd "$bin_dir" && zip -q -r "../../release/${name}.zip" .)
+              (cd "$bin_dir" && zip -q -r "$release/${name}.zip" .)
             else
-              tar -czf "../release/${name}.tar.gz" -C "$bin_dir" .
+              tar -czf "$release/${name}.tar.gz" -C "$bin_dir" .
             fi
           done
-          cd ../release
+          cd "$release"
           sha256sum * > checksums.txt
 
       - uses: softprops/action-gh-release@v3
