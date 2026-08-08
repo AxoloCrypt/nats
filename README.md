@@ -165,3 +165,29 @@ Releases are cut via [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`)
 and GitHub Actions (`.github/workflows/ci.yaml`): every push runs
 `go build`/`go test`, and pushing a `v*` tag cross-compiles and publishes
 binaries for all four platforms listed above.
+
+## License
+
+`nats` is free software: you can redistribute it and/or modify it under the
+terms of the **GNU General Public License, version 3** as published by the
+Free Software Foundation. See [`LICENSE`](LICENSE) for the full text.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for
+more details.
+
+### Third-party components
+
+`nats` links several permissively licensed Go libraries — `gopacket`,
+`miekg/dns`, `godbus`, `pflag`, `tinygo.org/x/bluetooth` and the `golang.org/x`
+packages (BSD-3-Clause), `hashicorp/mdns` and `koron/go-ssdp` (MIT), and
+`spf13/cobra` (Apache-2.0) — all of which are GPL-3.0 compatible. Packet
+capture goes through `libpcap` (BSD-3-Clause) on Linux and Npcap on Windows;
+neither is bundled with `nats`, and Npcap must be obtained separately from
+[npcap.com](https://npcap.com/) under its own license terms.
+
+The Bluetooth company-identifier table in `core/ble/vendor_data.go` is
+generated from Nordic Semiconductor's
+[bluetooth-numbers-database](https://github.com/NordicSemiconductor/bluetooth-numbers-database),
+itself derived from the Bluetooth SIG's public Assigned Numbers list.

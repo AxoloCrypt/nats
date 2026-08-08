@@ -202,7 +202,9 @@ jobs:
               exit 1
             fi
             name="nats_${platform//-/_}"
-            cp ../README.md "$bin_dir/"
+            # LICENSE is required, not optional: GPL-3.0 obliges us to
+            # convey a copy of the license with every binary we distribute.
+            cp ../README.md ../LICENSE "$bin_dir/"
             if [[ "$platform" == windows-* ]]; then
               (cd "$bin_dir" && zip -q -r "../../release/${name}.zip" .)
             else

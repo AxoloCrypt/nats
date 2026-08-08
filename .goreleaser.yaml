@@ -93,8 +93,14 @@ archives:
         formats: [zip]
     name_template: >-
       {{ .ProjectName }}_{{ .Os }}_{{ .Arch }}
+    # LICENSE ships in every archive: GPL-3.0 requires a copy of the license
+    # to be conveyed along with the binary, so this is a compliance
+    # requirement rather than a convenience. Keep it in sync with the
+    # publish job in .github/workflows/ci.yaml, which does the real
+    # archiving.
     files:
       - README.md
+      - LICENSE
 
 checksum:
   name_template: "checksums.txt"
