@@ -36,6 +36,17 @@ enforced by `goreleaser_config_test.go` at the repo root, which fails the
 build if `.goreleaser.yaml`'s matrix ever drifts from it. Treat any change
 to that matrix as a deliberate, explicit decision, not a routine edit.
 
+Any acceptance criterion phrased as a cross-platform guarantee (e.g. "no new
+cgo dependency," "runs without root") must be verified against every
+platform in that same four-platform matrix, not inferred from a build on
+whichever host happens to be running: `GOOS=<os> GOARCH=<arch> go list -deps
+./pkg` to check for an unwanted platform-specific dependency, and
+`CGO_ENABLED=0 GOOS=<os> go build ./pkg` to confirm it actually compiles
+cgo-free there. Story 4.1's Dev Agent Record once claimed cgo-freedom was
+verified via a Linux-only `go build ./...`, which cannot detect a
+darwin-only dependency — the gap wasn't caught until code review, well
+after the story was implemented.
+
 Note: comments throughout the codebase reference decision IDs like "AD-4",
 "FR-7", "Story 2.3" from an architecture/planning doc that is not checked
 into this repo. Treat these as historical rationale, not as pointers to a
