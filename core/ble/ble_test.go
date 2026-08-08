@@ -288,6 +288,245 @@ func TestRun_CompilesBLEDeviceProfilesInObservedOrder(t *testing.T) {
 	}
 }
 
+// TestRun_DedupesRepeatedAdvertisementsByAddress proves core/ble.Run merges
+// repeated advertisements from the same physical device (same Address)
+// into a single Report.Devices row instead of one row per raw packet —
+// closing the Epic 4 retrospective's highest-impact deferred item (flagged
+// in Story 4.2's and 4.7's reviews). Exercises all three merge rules from
+// spec-ble-advertisement-dedup.md's I/O matrix in one scan: DistanceEstimate
+// always takes the latest reading; Name/Vendor/DeviceType resolve from the
+// first packet that carries the signal and are never blanked back by a
+// later, less-informative one; distinct Addresses are unaffected.
+func TestRun_DedupesRepeatedAdvertisementsByAddress(t *testing.T) {
+	orig := scanner
+	defer func() { scanner = orig }()
+
+	googleID := uint16(224)
+	appleID := uint16(76)
+
+	// aa: three sightings of the same device, RSSI improving each time —
+	// proves DistanceEstimate always reflects the latest packet, not the
+	// first.
+	aaFirst := Advertisement{Address: "aa:11:00:00:00:01", Name: "Gadget", RSSI: -80, CompanyID: &googleID}
+	aaLast := Advertisement{Address: "aa:11:00:00:00:01", Name: "Gadget", RSSI: -60, CompanyID: &googleID}
+
+	// bb: identity signal absent on first sighting, resolves on the second,
+	// then the third sighting reverts to carrying no signal at all — proves
+	// Name/Vendor/DeviceType lock in once resolved and never regress.
+	bbUnresolved := Advertisement{Address: "bb:22:00:00:00:01", RSSI: -90}
+	bbResolved := Advertisement{Address: "bb:22:00:00:00:01", Name: "Beacon Widget", RSSI: -85, CompanyID: &appleID}
+
+	RegisterScanner(&fakeScanner{
+		probeOK: true,
+		advertisements: []Advertisement{
+			{Address: "cc:33:00:00:00:01", Name: "Distinct1", RSSI: -65, CompanyID: &appleID}, // distinct, single sighting
+			aaFirst,
+			bbUnresolved,
+			{Address: "dd:44:00:00:00:01", Name: "Distinct2", RSSI: -70},                    // distinct, single sighting, interleaved
+			{Address: "aa:11:00:00:00:01", Name: "Gadget", RSSI: -70, CompanyID: &googleID}, // aa: middle sighting
+			bbResolved,
+			aaLast,
+			{Address: "bb:22:00:00:00:01", RSSI: -88}, // bb: reverts to no identity signal
+		},
+	})
+
+	got := drainToDone(t, Options{Window: time.Second})
+
+	var foundOrder []string
+	var report Report
+	for _, evt := range got {
+		if evt.Kind == EventKindDeviceFound {
+			foundOrder = append(foundOrder, evt.Device.Address)
+		}
+		if evt.Kind == EventKindDone {
+			report = evt.Report
+		}
+	}
+
+	wantOrder := []string{"cc:33:00:00:00:01", "aa:11:00:00:00:01", "bb:22:00:00:00:01", "dd:44:00:00:00:01"}
+	if len(foundOrder) != len(wantOrder) {
+		t.Fatalf("expected exactly %d DeviceFound events (one per unique Address, never one per packet), got %d: %v", len(wantOrder), len(foundOrder), foundOrder)
+	}
+	for i := range wantOrder {
+		if foundOrder[i] != wantOrder[i] {
+			t.Fatalf("expected DeviceFound order %v, got %v", wantOrder, foundOrder)
+		}
+	}
+
+	if len(report.Devices) != len(wantOrder) {
+		t.Fatalf("expected %d deduped rows in Report.Devices (first-sighting order), got %d: %+v", len(wantOrder), len(report.Devices), report.Devices)
+	}
+	for i, addr := range wantOrder {
+		if report.Devices[i].Address != addr {
+			t.Fatalf("expected Report.Devices[%d].Address == %q (first-sighting order preserved), got %q", i, addr, report.Devices[i].Address)
+		}
+	}
+
+	byAddr := make(map[string]BLEDeviceProfile, len(report.Devices))
+	for _, d := range report.Devices {
+		byAddr[d.Address] = d
+	}
+
+	// aa: DistanceEstimate must reflect the last (strongest, -60) reading,
+	// not the first (-80) one.
+	aa := byAddr["aa:11:00:00:00:01"]
+	wantAADistance := FormatDistance(EstimateDistance(aaLast.RSSI, aaLast.TXPower))
+	staleAADistance := FormatDistance(EstimateDistance(aaFirst.RSSI, aaFirst.TXPower))
+	if aa.DistanceEstimate != wantAADistance {
+		t.Fatalf("aa: expected DistanceEstimate from the latest (3rd) packet %q, got %q", wantAADistance, aa.DistanceEstimate)
+	}
+	if aa.DistanceEstimate == staleAADistance {
+		t.Fatalf("aa: DistanceEstimate matches the first packet's reading — it should have been overwritten by the latest one")
+	}
+
+	// bb: Name/Vendor/DeviceType must reflect the one packet (the 2nd) that
+	// carried the signal, and must not have been blanked back to their
+	// placeholder by the 1st (before) or 3rd (after) packet, which carried
+	// none. DistanceEstimate must still reflect the 3rd (latest) packet's
+	// RSSI even though that same packet carried no identity signal — proves
+	// the two merge rules apply independently on the same row.
+	bb := byAddr["bb:22:00:00:00:01"]
+	if bb.Name != "Beacon Widget" {
+		t.Fatalf("bb: expected Name %q to survive the later no-signal packet, got %q", "Beacon Widget", bb.Name)
+	}
+	if bb.Vendor != "Apple, Inc." {
+		t.Fatalf("bb: expected Vendor %q to survive the later no-signal packet, got %q", "Apple, Inc.", bb.Vendor)
+	}
+	if bb.DeviceType != DeviceTypeSensorTag {
+		t.Fatalf("bb: expected DeviceType %q (from the \"beacon\" keyword) to survive the later no-signal packet, got %q", DeviceTypeSensorTag, bb.DeviceType)
+	}
+	wantBBDistance := FormatDistance(EstimateDistance(-88, nil)) // the 3rd, latest packet
+	if bb.DistanceEstimate != wantBBDistance {
+		t.Fatalf("bb: expected DistanceEstimate from the latest (3rd) packet %q, got %q", wantBBDistance, bb.DistanceEstimate)
+	}
+
+	// cc/dd: distinct Addresses seen once each — every field, not just
+	// Name/Vendor, must be untouched by dedup logic.
+	cc := byAddr["cc:33:00:00:00:01"]
+	wantCCDistance := FormatDistance(EstimateDistance(-65, nil))
+	if cc.Name != "Distinct1" || cc.Vendor != "Apple, Inc." || cc.DeviceType != DeviceTypeUnknown || cc.DistanceEstimate != wantCCDistance {
+		t.Fatalf("cc: expected an untouched single-sighting row, got %+v", cc)
+	}
+	dd := byAddr["dd:44:00:00:00:01"]
+	wantDDDistance := FormatDistance(EstimateDistance(-70, nil))
+	if dd.Name != "Distinct2" || dd.Vendor != "unknown" || dd.DeviceType != DeviceTypeUnknown || dd.DistanceEstimate != wantDDDistance {
+		t.Fatalf("dd: expected an untouched single-sighting row, got %+v", dd)
+	}
+}
+
+// TestRun_DedupeIsCaseSensitiveOnAddress pins spec-ble-advertisement-dedup.md's
+// "Always: ... no normalization/case-folding" boundary as a checked
+// invariant: two Addresses differing only in case must be treated as two
+// distinct devices, never merged. Guards against a well-intentioned future
+// "fix" (e.g. adding strings.ToLower for robustness) silently violating
+// that boundary.
+func TestRun_DedupeIsCaseSensitiveOnAddress(t *testing.T) {
+	orig := scanner
+	defer func() { scanner = orig }()
+
+	RegisterScanner(&fakeScanner{
+		probeOK: true,
+		advertisements: []Advertisement{
+			{Address: "AA:BB:CC:DD:EE:FF", RSSI: -60},
+			{Address: "aa:bb:cc:dd:ee:ff", RSSI: -70},
+		},
+	})
+
+	got := drainToDone(t, Options{Window: time.Second})
+
+	var report Report
+	var foundCount int
+	for _, evt := range got {
+		if evt.Kind == EventKindDeviceFound {
+			foundCount++
+		}
+		if evt.Kind == EventKindDone {
+			report = evt.Report
+		}
+	}
+
+	if foundCount != 2 {
+		t.Fatalf("expected 2 DeviceFound events (case-differing Addresses are distinct devices, never merged), got %d", foundCount)
+	}
+	if len(report.Devices) != 2 {
+		t.Fatalf("expected 2 rows in Report.Devices, got %d: %+v", len(report.Devices), report.Devices)
+	}
+}
+
+// controlledScanner is a BLEScanner whose Scan returns a channel the test
+// sends into directly, letting a test synchronize advertisement delivery
+// with context cancellation deterministically instead of racing on it.
+type controlledScanner struct {
+	ch chan Advertisement
+}
+
+func (c *controlledScanner) Probe() (bool, string) { return true, "" }
+
+func (c *controlledScanner) Scan(ctx context.Context, window time.Duration) (<-chan Advertisement, error) {
+	return c.ch, nil
+}
+
+// TestRun_MergePathStillObservesCtxCancellation guards the merge branch's
+// ctx.Done() check: a repeat sighting of a known Address (the exact
+// re-broadcast pattern the dedup merge exists to handle) must not delay
+// observing cancellation until the next new Address or advCh's own close.
+// Uses an unbuffered, test-controlled channel to make the ordering between
+// "ctx canceled" and "repeat advertisement delivered" deterministic — a
+// wall-clock race (e.g. cancel() then hope the goroutine hasn't already
+// finished a burst) would be flaky in either direction.
+func TestRun_MergePathStillObservesCtxCancellation(t *testing.T) {
+	orig := scanner
+	defer func() { scanner = orig }()
+
+	advCh := make(chan Advertisement)
+	RegisterScanner(&controlledScanner{ch: advCh})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	events, err := Run(ctx, Options{Window: time.Second})
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	send := func(adv Advertisement) {
+		t.Helper()
+		select {
+		case advCh <- adv:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out sending advertisement — Run's drain loop is not reading advCh")
+		}
+	}
+
+	// First sighting of "aa": send it and drain the resulting DeviceFound —
+	// this deterministically proves Run's goroutine is back at the top of
+	// the drain loop, blocked on advCh, before cancellation.
+	send(Advertisement{Address: "aa:bb:cc:dd:ee:ff", RSSI: -60})
+	select {
+	case evt := <-events:
+		if evt.Kind != EventKindDeviceFound {
+			t.Fatalf("expected the first event to be DeviceFound, got %v", evt.Kind)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the first DeviceFound event")
+	}
+
+	cancel()
+
+	// Second sighting of the same Address: a repeat, so it goes through the
+	// merge branch. If that branch doesn't check ctx.Done(), Run keeps
+	// draining forever waiting for advCh to close — the exact hang the fix
+	// guards against.
+	send(Advertisement{Address: "aa:bb:cc:dd:ee:ff", RSSI: -70})
+
+	select {
+	case _, ok := <-events:
+		if ok {
+			t.Fatal("expected the channel to close (ctx canceled mid-merge), got an event instead")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run's event channel never closed — the merge path is not observing ctx cancellation")
+	}
+}
+
 // TestRun_TwoConsecutiveCallsAreIndependent is the concrete, automatable
 // proof of AC #1's "two fully independent result sets" requirement
 // (NL-AD-12): back-to-back Run() calls, with the registered BLEScanner
