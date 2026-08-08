@@ -297,6 +297,7 @@ func TestBLECommand_RejectsNonPositiveWindow(t *testing.T) {
 			}
 
 			bleRunCalled = false
+			codes := withCapturedExit(t)
 			withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
 				if err := bleCmd.RunE(bleCmd, nil); err != nil {
 					t.Fatalf("expected a clean exit, got: %v", err)
@@ -316,6 +317,10 @@ func TestBLECommand_RejectsNonPositiveWindow(t *testing.T) {
 			if bleRunCalled {
 				t.Fatal("expected ble.Run never to be called for a non-positive window")
 			}
+			// An invalid --window is the same class of upfront,
+			// scan-never-started error as an invalid --format, so it must
+			// exit 1 the same way.
+			assertExitCode(t, codes, 1)
 		})
 	}
 }
@@ -429,11 +434,12 @@ func runWithTimeout(t *testing.T, timeout time.Duration, fn func() error) error 
 // AC #1: with the OS refusing Bluetooth access, nats ble prints a warning
 // naming what was skipped and why, and still exits normally.
 //
-// The nil-error assertion pins ble to scan's existing exit-code convention
-// (root.go's scanCmd.RunE returns nil even on an error-severity Diagnostic —
-// a known, deliberately-deferred limitation from Story 1.1's review). Story
-// 4.6 keeps the two commands consistent; changing that convention
-// project-wide is out of scope here.
+// The nil-error assertion pins ble to scan's RunE convention of always
+// returning nil (root.go's scanCmd.RunE does the same) — process exit code
+// is instead driven by the swappable osExit var, called directly from RunE
+// only when an error-severity Diagnostic was rendered (spec
+// cli-exit-code-on-error). A warning-severity Diagnostic, as tested here,
+// must never trigger it; see the osExit assertion below.
 func TestBLECommand_PermissionGap_CompletesCleanly(t *testing.T) {
 	// Asserts on the default table writer's "ADDRESS" header below, so the
 	// shared bleCmd's --format must be known-default rather than whatever an
@@ -448,6 +454,8 @@ func TestBLECommand_PermissionGap_CompletesCleanly(t *testing.T) {
 	for _, reason := range reasons {
 		t.Run(reason, func(t *testing.T) {
 			withRegisteredScanner(t, &probeFailScanner{reason: reason})
+
+			codes := withCapturedExit(t)
 
 			withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
 				err := runWithTimeout(t, 30*time.Second, func() error {
@@ -479,6 +487,10 @@ func TestBLECommand_PermissionGap_CompletesCleanly(t *testing.T) {
 					t.Fatalf("expected the command to complete normally and render the header-only report, got: %q", reportBuf.String())
 				}
 			})
+
+			// AC: a warning-only run exits 0, unchanged — osExit must never
+			// be called for a permission-gap warning.
+			assertExitCode(t, codes)
 		})
 	}
 }
@@ -501,6 +513,8 @@ func TestBLECommand_ZeroDevicesFound_IsNotReportedAsFailure(t *testing.T) {
 
 	withRegisteredScanner(t, zeroDeviceScanner{})
 
+	codes := withCapturedExit(t)
+
 	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
 		err := runWithTimeout(t, 30*time.Second, func() error {
 			return bleCmd.RunE(bleCmd, nil)
@@ -518,6 +532,10 @@ func TestBLECommand_ZeroDevicesFound_IsNotReportedAsFailure(t *testing.T) {
 			t.Fatalf("expected the command to complete normally and render the header-only report, got: %q", reportBuf.String())
 		}
 	})
+
+	// AC: "Given a normal, diagnostic-free scan, when the command runs,
+	// then it exits with code 0, unchanged from today."
+	assertExitCode(t, codes)
 }
 
 // bleFormatMarkers pinpoints a substring unique to each writer's rendering
@@ -602,6 +620,8 @@ func TestBLECommand_UnrecognizedFormat_ProducesErrorDiagnosticNotSilentDefault(t
 		return ch, nil
 	}
 
+	codes := withCapturedExit(t)
+
 	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
 		if err := bleCmd.Flags().Set("format", "yaml"); err != nil {
 			t.Fatalf("failed to set format flag: %v", err)
@@ -621,6 +641,9 @@ func TestBLECommand_UnrecognizedFormat_ProducesErrorDiagnosticNotSilentDefault(t
 	if bleRunCalled {
 		t.Fatal("expected an unrecognized --format to be rejected before the scan runs, but bleRun was invoked")
 	}
+	// AC: "Given nats ble --format yaml, when the command runs, then an
+	// error diagnostic is rendered and the process exits with code 1."
+	assertExitCode(t, codes, 1)
 }
 
 // TestBLECommand_OutputFileFlag_WritesByteIdenticalContentToStdoutAndFile
@@ -901,6 +924,8 @@ func TestBLECommand_OutputFileWriteFailure_ProducesErrorDiagnosticAndStdoutStill
 		t.Fatalf("failed to set output-file flag: %v", err)
 	}
 
+	codes := withCapturedExit(t)
+
 	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
 		if err := bleCmd.RunE(bleCmd, nil); err != nil {
 			t.Fatalf("ble command failed: %v", err)
@@ -915,6 +940,73 @@ func TestBLECommand_OutputFileWriteFailure_ProducesErrorDiagnosticAndStdoutStill
 			t.Fatalf("expected the stdout report to survive a file-write failure, got: %q", reportBuf.String())
 		}
 	})
+
+	// Mirrors root.go's equivalent AC: stdout output is still shown, an
+	// error diagnostic is rendered, and the process exits with code 1.
+	assertExitCode(t, codes, 1)
+}
+
+// bleErrWriter always fails to write, used below to force runBLEScan's
+// stdout-write error diagnostic without relying on a real unwritable
+// destination — mirrors root_test.go's errWriter.
+type bleErrWriter struct{}
+
+func (bleErrWriter) Write(p []byte) (int, error) { return 0, errors.New("write failed") }
+
+// TestBLECommand_MultipleErrorDiagnostics_CallsOsExitExactlyOnce is the
+// BLE-side counterpart to root_test.go's
+// TestScanCommand_MultipleErrorDiagnostics_CallsOsExitExactlyOnce — every
+// other test added by this fix is a deliberate one-for-one mirror between
+// scan and ble, and this aggregation case (osExit called exactly once
+// despite two separate error diagnostics in the same run) is exactly the
+// kind of bug a future runBLEScan refactor could reintroduce without a
+// dedicated regression test catching it.
+func TestBLECommand_MultipleErrorDiagnostics_CallsOsExitExactlyOnce(t *testing.T) {
+	origBLERun := bleRun
+	origWrite := writeReportFile
+	defer func() { bleRun = origBLERun; writeReportFile = origWrite }()
+	bleRun = func(ctx context.Context, opts ble.Options) (<-chan ble.Event, error) {
+		ch := make(chan ble.Event, 1)
+		ch <- bleDoneEventWithOneDevice()
+		close(ch)
+		return ch, nil
+	}
+	writeReportFile = func(name string, data []byte, perm os.FileMode) error {
+		return errors.New("permission denied")
+	}
+
+	defer resetBLEOutputFileFlag(t)
+	if err := bleCmd.Flags().Set("output-file", "/nonexistent/out.txt"); err != nil {
+		t.Fatalf("failed to set output-file flag: %v", err)
+	}
+
+	codes := withCapturedExit(t)
+
+	origProgress := progressWriter
+	origDiagnostic := diagnosticWriter
+	origReport := reportWriter
+	defer func() {
+		progressWriter = origProgress
+		diagnosticWriter = origDiagnostic
+		reportWriter = origReport
+	}()
+	var progressBuf, diagnosticBuf bytes.Buffer
+	progressWriter = &progressBuf
+	diagnosticWriter = &diagnosticBuf
+	reportWriter = bleErrWriter{}
+
+	if err := bleCmd.RunE(bleCmd, nil); err != nil {
+		t.Fatalf("ble command failed: %v", err)
+	}
+
+	diagnostics := diagnosticBuf.String()
+	if !strings.Contains(diagnostics, "failed to write BLE scan summary") {
+		t.Fatalf("expected the stdout-write failure diagnostic, got: %q", diagnostics)
+	}
+	if !strings.Contains(diagnostics, "failed to write BLE scan summary to file") {
+		t.Fatalf("expected the file-write failure diagnostic, got: %q", diagnostics)
+	}
+	assertExitCode(t, codes, 1)
 }
 
 // TestBLECommand_SkippedScanIsVisibleInJSON covers the Report.Diagnostics

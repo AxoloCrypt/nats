@@ -114,6 +114,7 @@ func renderDone(w io.Writer, p *scanProgress) {
 
 var engineRun = engine.Run
 var writeReportFile = os.WriteFile
+var osExit = os.Exit
 var progressWriter io.Writer = os.Stderr
 var diagnosticWriter io.Writer = os.Stderr
 var reportWriter io.Writer = os.Stdout
@@ -122,7 +123,13 @@ var reportWriter io.Writer = os.Stdout
 // regardless of whether it originated in core/engine or cmd/cli — is
 // printed (AD-8). Nothing else in this package prints a Diagnostic's
 // Severity/Message/Reason directly.
-func renderDiagnostic(w io.Writer, d engine.Diagnostic) {
+//
+// It returns whether d was error-severity, so callers that need to track a
+// run's overall exit status (runScan, via evt.Diagnostics) can do so without
+// reading a Diagnostic's Severity field themselves — renderDiagnostic must
+// stay the only reader of engine.Diagnostic's fields, per the AD-8
+// enforcement test (diagnostic_enforcement_test.go).
+func renderDiagnostic(w io.Writer, d engine.Diagnostic) bool {
 	severity := d.Severity
 	if severity == "" {
 		severity = "notice"
@@ -131,12 +138,31 @@ func renderDiagnostic(w io.Writer, d engine.Diagnostic) {
 	if d.Reason != "" {
 		fmt.Fprintf(w, "  reason: %s\n", d.Reason)
 	}
+	return severity == "error"
 }
 
-func runScan(w io.Writer, events <-chan engine.Event, writer engine.Writer, outputFile string) {
+// runScan reports whether any error-severity Diagnostic was rendered during
+// the run (from evt.Diagnostics and the three inline render/write-failure
+// diagnostics below) — the single source of truth scanCmd.RunE consults to
+// decide whether to osExit(1).
+//
+// This includes core/engine.Run's own pre-existing "no devices discovered"
+// error diagnostic (engine.go, the `!hasError && len(devices) == 0` guard):
+// a LAN scan that legitimately finds nothing now exits 1, not just an
+// invalid flag or a write failure. That's intentional, not new scope creep —
+// LAN scanning can assume at least a router is reachable (see that guard's
+// own comment), so a genuinely empty result is exactly the kind of "scan
+// failure" a script/CI consumer of the exit code wants to know about. This
+// is also why nats scan and nats ble deliberately diverge here: BLE has no
+// equivalent assumption (see core/ble.Run's doc comment — "being somewhere
+// with nothing broadcasting nearby is an ordinary outcome, not a failure"),
+// so an empty BLE scan never carries an error-severity diagnostic and always
+// exits 0. See TestScanCommand_NoDevicesDiscovered_ExitsNonzero.
+func runScan(w io.Writer, events <-chan engine.Event, writer engine.Writer, outputFile string) bool {
 	progress := &scanProgress{
 		techniques: make(map[string]string),
 	}
+	sawError := false
 
 	for evt := range events {
 		switch evt.Kind {
@@ -164,7 +190,9 @@ func runScan(w io.Writer, events <-chan engine.Event, writer engine.Writer, outp
 		case engine.EventKindDone:
 			renderDone(w, progress)
 			for _, d := range evt.Diagnostics {
-				renderDiagnostic(diagnosticWriter, d)
+				if renderDiagnostic(diagnosticWriter, d) {
+					sawError = true
+				}
 			}
 			out, err := writer.Write(evt.Report)
 			if err != nil {
@@ -173,6 +201,7 @@ func runScan(w io.Writer, events <-chan engine.Event, writer engine.Writer, outp
 					Message:  "failed to render scan summary",
 					Reason:   err.Error(),
 				})
+				sawError = true
 				continue
 			}
 			if _, err := reportWriter.Write(out); err != nil {
@@ -181,6 +210,7 @@ func runScan(w io.Writer, events <-chan engine.Event, writer engine.Writer, outp
 					Message:  "failed to write scan summary",
 					Reason:   err.Error(),
 				})
+				sawError = true
 			}
 			// File persistence wraps the same Writer output already written to
 			// stdout above (AD-7) — it never blocks or replaces the stdout
@@ -192,10 +222,12 @@ func runScan(w io.Writer, events <-chan engine.Event, writer engine.Writer, outp
 						Message:  "failed to write scan summary to file",
 						Reason:   err.Error(),
 					})
+					sawError = true
 				}
 			}
 		}
 	}
+	return sawError
 }
 
 var scanCmd = &cobra.Command{
@@ -219,7 +251,11 @@ mDNS/SSDP discovery and the dns/oui/tcpconnect/banner enrichers never need
 elevated privilege. When a selected technique/enricher can't get the
 privilege it needs, nats skips just that one, emits a "warning" diagnostic
 naming it and why, and still completes the scan with everything else that
-was requested.`,
+was requested.
+
+Exit code: 0 on a clean or warning-only scan, 1 if any "error" diagnostic
+was printed (invalid flag, no devices discovered, a write failure, etc.) —
+scripts/CI can check $? to detect a failed scan.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		opts := buildOptions(cmd)
 
@@ -233,6 +269,11 @@ was requested.`,
 				Message:  fmt.Sprintf("unrecognized output format %q", opts.OutputFormat),
 				Reason:   "expected one of: " + strings.Join(engine.WriterNames(), ", "),
 			})
+			// osExit(1), not return fmt.Errorf(...): rootCmd sets neither
+			// SilenceUsage nor SilenceErrors, so cobra would print this error
+			// (and usage text) a second time on top of the diagnostic just
+			// rendered above.
+			osExit(1)
 			return nil
 		}
 
@@ -243,7 +284,9 @@ was requested.`,
 		}
 
 		outputFile, _ := cmd.Flags().GetString("output-file")
-		runScan(progressWriter, events, writer, strings.TrimSpace(outputFile))
+		if runScan(progressWriter, events, writer, strings.TrimSpace(outputFile)) {
+			osExit(1)
+		}
 		return nil
 	},
 }

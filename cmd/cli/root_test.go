@@ -474,6 +474,44 @@ func TestRenderDone_ShowsSummary(t *testing.T) {
 	}
 }
 
+// withCapturedExit overrides osExit for the duration of the calling test,
+// recording every code passed to it instead of terminating the test binary —
+// mirrors withOverriddenWriters' save/restore-on-defer pattern, applied to
+// the swappable osExit var. It is purely a recorder: it does not itself
+// enforce any invariant about how many times osExit is called or with what
+// codes — pair every use with assertExitCode, which does.
+//
+// Not safe under t.Parallel(): osExit is a shared package-level var, same
+// trade-off already accepted for engineRun/writeReportFile/progressWriter
+// elsewhere in this file. No test in this package uses t.Parallel() today.
+func withCapturedExit(t *testing.T) *[]int {
+	t.Helper()
+	orig := osExit
+	var codes []int
+	osExit = func(code int) {
+		codes = append(codes, code)
+	}
+	t.Cleanup(func() { osExit = orig })
+	return &codes
+}
+
+// assertExitCode asserts osExit was called with exactly the given sequence
+// of codes (in order) — zero codes asserts it was never called. Centralizes
+// the check so a future test can't forget the "at most once" half of it, as
+// the six inline call sites this replaced independently had to remember to
+// write each time.
+func assertExitCode(t *testing.T, codes *[]int, want ...int) {
+	t.Helper()
+	if len(*codes) != len(want) {
+		t.Fatalf("expected osExit called with codes %v, got calls: %v", want, *codes)
+	}
+	for i, w := range want {
+		if (*codes)[i] != w {
+			t.Fatalf("expected osExit called with codes %v, got calls: %v", want, *codes)
+		}
+	}
+}
+
 func withOverriddenWriters(t *testing.T, fn func(progress, diagnostic, report *bytes.Buffer)) {
 	t.Helper()
 	origProgress := progressWriter
@@ -579,6 +617,8 @@ func TestScanCommand_PrintsReportTableToReportWriter(t *testing.T) {
 		return ch, nil
 	}
 
+	codes := withCapturedExit(t)
+
 	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
 		cmd := newTestScanCmd()
 		if err := scanCmd.RunE(cmd, nil); err != nil {
@@ -593,6 +633,10 @@ func TestScanCommand_PrintsReportTableToReportWriter(t *testing.T) {
 			t.Fatalf("expected no diagnostics printed, got: %q", diagnosticBuf.String())
 		}
 	})
+
+	// AC: "Given a normal, diagnostic-free scan, when the command runs, then
+	// it exits with code 0, unchanged from today."
+	assertExitCode(t, codes)
 }
 
 func TestScanCommand_WarningAndSummaryBothRenderInSameRun(t *testing.T) {
@@ -616,6 +660,8 @@ func TestScanCommand_WarningAndSummaryBothRenderInSameRun(t *testing.T) {
 		return ch, nil
 	}
 
+	codes := withCapturedExit(t)
+
 	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
 		cmd := newTestScanCmd()
 		if err := scanCmd.RunE(cmd, nil); err != nil {
@@ -629,6 +675,11 @@ func TestScanCommand_WarningAndSummaryBothRenderInSameRun(t *testing.T) {
 			t.Fatalf("expected the discovered device's summary row, got: %q", reportBuf.String())
 		}
 	})
+
+	// AC: "Given a scan that completes with only a warning-severity
+	// diagnostic ..., when the command runs, then it exits with code 0,
+	// unchanged from today." A warning must never trip osExit.
+	assertExitCode(t, codes)
 }
 
 // formatMarkers pinpoints a substring unique to each writer's rendering of
@@ -710,6 +761,8 @@ func TestScanCommand_UnrecognizedFormat_ProducesErrorDiagnosticNotSilentDefault(
 		return ch, nil
 	}
 
+	codes := withCapturedExit(t)
+
 	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
 		cmd := newTestScanCmd()
 		if err := cmd.Flags().Set("format", "yaml"); err != nil {
@@ -729,6 +782,10 @@ func TestScanCommand_UnrecognizedFormat_ProducesErrorDiagnosticNotSilentDefault(
 			t.Fatal("expected an unrecognized --format to be rejected before the scan runs, but engineRun was invoked")
 		}
 	})
+
+	// AC: "Given nats scan --format yaml, when the command runs, then an
+	// error diagnostic is rendered and the process exits with code 1."
+	assertExitCode(t, codes, 1)
 }
 
 // TestScanCommand_ProgressOutputIdenticalAcrossAllFormats is Task 5/AC #2's
@@ -943,6 +1000,8 @@ func TestScanCommand_OutputFileWriteFailure_ProducesErrorDiagnosticAndStdoutStil
 		return errors.New("permission denied")
 	}
 
+	codes := withCapturedExit(t)
+
 	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
 		cmd := newTestScanCmd()
 		if err := cmd.Flags().Set("output-file", "/unwritable/summary.txt"); err != nil {
@@ -959,6 +1018,11 @@ func TestScanCommand_OutputFileWriteFailure_ProducesErrorDiagnosticAndStdoutStil
 			t.Fatal("expected stdout (reportWriter) to still receive the summary despite the file-write failure")
 		}
 	})
+
+	// AC: "Given a scan with --output-file pointed at an unwritable path,
+	// when the command runs, then stdout output is still shown, an error
+	// diagnostic is rendered, and the process exits with code 1."
+	assertExitCode(t, codes, 1)
 }
 
 // TestScanCommand_ProgressOutputIdenticalWithAndWithoutOutputFile is Task 2's
@@ -1011,4 +1075,187 @@ func TestScanCommand_ProgressOutputIdenticalWithAndWithoutOutputFile(t *testing.
 		t.Fatalf("expected identical progress output with and without --output-file set:\n%q\nvs\n%q",
 			progressOutputs[0], progressOutputs[1])
 	}
+}
+
+// errWriter always fails to write, used below to force runScan's
+// stdout-write error diagnostic without relying on a real unwritable
+// destination.
+type errWriter struct{}
+
+func (errWriter) Write(p []byte) (int, error) { return 0, errors.New("write failed") }
+
+// TestScanCommand_MultipleErrorDiagnostics_CallsOsExitExactlyOnce is the I/O
+// matrix's "multiple error diagnostics in one run" case: a run that fails
+// both the stdout write and the file write emits two separate error
+// diagnostics, but scanCmd.RunE checks runScan's single aggregated bool, not
+// a per-diagnostic counter, so it must still call osExit(1) exactly once.
+func TestScanCommand_MultipleErrorDiagnostics_CallsOsExitExactlyOnce(t *testing.T) {
+	origRun := engineRun
+	defer func() { engineRun = origRun }()
+	engineRun = func(ctx context.Context, opts engine.Options) (<-chan engine.Event, error) {
+		ch := make(chan engine.Event, 5)
+		ch <- doneEventWithOneDevice()
+		close(ch)
+		return ch, nil
+	}
+
+	origWriteFile := writeReportFile
+	defer func() { writeReportFile = origWriteFile }()
+	writeReportFile = func(name string, data []byte, perm os.FileMode) error {
+		return errors.New("permission denied")
+	}
+
+	codes := withCapturedExit(t)
+
+	origProgress := progressWriter
+	origDiagnostic := diagnosticWriter
+	origReport := reportWriter
+	defer func() {
+		progressWriter = origProgress
+		diagnosticWriter = origDiagnostic
+		reportWriter = origReport
+	}()
+	var progressBuf, diagnosticBuf bytes.Buffer
+	progressWriter = &progressBuf
+	diagnosticWriter = &diagnosticBuf
+	reportWriter = errWriter{}
+
+	cmd := newTestScanCmd()
+	if err := cmd.Flags().Set("output-file", "/unwritable/summary.txt"); err != nil {
+		t.Fatalf("failed to set output-file flag: %v", err)
+	}
+	if err := scanCmd.RunE(cmd, nil); err != nil {
+		t.Fatalf("scan command failed: %v", err)
+	}
+
+	// Match on the two failure messages themselves, not a bare "error:"
+	// substring count — renderDiagnostic's rendered "reason:" line can
+	// itself legitimately contain the word "error" (a wrapped OS error
+	// message), which a count-based match can't distinguish from a second
+	// diagnostic.
+	diagnostics := diagnosticBuf.String()
+	if !strings.Contains(diagnostics, "failed to write scan summary") {
+		t.Fatalf("expected the stdout-write failure diagnostic, got: %q", diagnostics)
+	}
+	if !strings.Contains(diagnostics, "failed to write scan summary to file") {
+		t.Fatalf("expected the file-write failure diagnostic, got: %q", diagnostics)
+	}
+	assertExitCode(t, codes, 1)
+}
+
+// TestScanCommand_NoDevicesDiscovered_ExitsNonzero locks in the intentional
+// consequence documented on runScan's doc comment: core/engine.Run's
+// pre-existing "no devices discovered" error diagnostic now drives a
+// nonzero exit, not just the new-in-this-diff triggers (invalid flag, write
+// failure). This is the scenario Blind Hunter and Edge Case Hunter review
+// flagged as real but untested when this fix was first implemented.
+func TestScanCommand_NoDevicesDiscovered_ExitsNonzero(t *testing.T) {
+	origRun := engineRun
+	defer func() { engineRun = origRun }()
+	engineRun = func(ctx context.Context, opts engine.Options) (<-chan engine.Event, error) {
+		ch := make(chan engine.Event, 1)
+		ch <- engine.Event{
+			Kind: engine.EventKindDone,
+			Diagnostics: []engine.Diagnostic{
+				{Severity: "error", Message: "no devices discovered"},
+			},
+			Report: engine.Report{},
+		}
+		close(ch)
+		return ch, nil
+	}
+
+	codes := withCapturedExit(t)
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		cmd := newTestScanCmd()
+		if err := scanCmd.RunE(cmd, nil); err != nil {
+			t.Fatalf("scan command failed: %v", err)
+		}
+		if !strings.Contains(diagnosticBuf.String(), "no devices discovered") {
+			t.Fatalf("expected the no-devices-discovered diagnostic, got: %q", diagnosticBuf.String())
+		}
+	})
+
+	assertExitCode(t, codes, 1)
+}
+
+// TestScanCommand_WarningAndErrorDiagnosticsInSameRun_ExitsNonzero proves
+// sawError's OR-aggregation isn't defeated by a warning arriving alongside
+// an error in the same evt.Diagnostics slice — the all-warning and
+// all-error cases were previously only ever tested in isolation from each
+// other.
+func TestScanCommand_WarningAndErrorDiagnosticsInSameRun_ExitsNonzero(t *testing.T) {
+	origRun := engineRun
+	defer func() { engineRun = origRun }()
+	engineRun = func(ctx context.Context, opts engine.Options) (<-chan engine.Event, error) {
+		ch := make(chan engine.Event, 1)
+		ch <- engine.Event{
+			Kind: engine.EventKindDone,
+			Diagnostics: []engine.Diagnostic{
+				{Severity: "warning", Message: "icmp skipped", Reason: "requires privilege"},
+				{Severity: "error", Message: "no devices discovered"},
+			},
+			Report: engine.Report{},
+		}
+		close(ch)
+		return ch, nil
+	}
+
+	codes := withCapturedExit(t)
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		cmd := newTestScanCmd()
+		if err := scanCmd.RunE(cmd, nil); err != nil {
+			t.Fatalf("scan command failed: %v", err)
+		}
+		if !strings.Contains(diagnosticBuf.String(), "warning: icmp skipped") {
+			t.Fatalf("expected the warning diagnostic to still render, got: %q", diagnosticBuf.String())
+		}
+		if !strings.Contains(diagnosticBuf.String(), "no devices discovered") {
+			t.Fatalf("expected the error diagnostic to still render, got: %q", diagnosticBuf.String())
+		}
+	})
+
+	assertExitCode(t, codes, 1)
+}
+
+// TestScanCommand_MultipleErrorDiagnosticsViaEvent_CallsOsExitExactlyOnce
+// covers the evt.Diagnostics aggregation loop directly (root.go's
+// `for _, d := range evt.Diagnostics`), distinct from
+// TestScanCommand_MultipleErrorDiagnostics_CallsOsExitExactlyOnce above,
+// which only forces failures through the three separately-inlined
+// render/write-failure diagnostics — neither test previously proved two or
+// more error-severity entries arriving in evt.Diagnostics itself aggregate
+// correctly.
+func TestScanCommand_MultipleErrorDiagnosticsViaEvent_CallsOsExitExactlyOnce(t *testing.T) {
+	origRun := engineRun
+	defer func() { engineRun = origRun }()
+	engineRun = func(ctx context.Context, opts engine.Options) (<-chan engine.Event, error) {
+		ch := make(chan engine.Event, 1)
+		ch <- engine.Event{
+			Kind: engine.EventKindDone,
+			Diagnostics: []engine.Diagnostic{
+				{Severity: "error", Message: "first failure"},
+				{Severity: "error", Message: "second failure"},
+			},
+			Report: engine.Report{},
+		}
+		close(ch)
+		return ch, nil
+	}
+
+	codes := withCapturedExit(t)
+
+	withOverriddenWriters(t, func(progressBuf, diagnosticBuf, reportBuf *bytes.Buffer) {
+		cmd := newTestScanCmd()
+		if err := scanCmd.RunE(cmd, nil); err != nil {
+			t.Fatalf("scan command failed: %v", err)
+		}
+		if !strings.Contains(diagnosticBuf.String(), "first failure") || !strings.Contains(diagnosticBuf.String(), "second failure") {
+			t.Fatalf("expected both error diagnostics to render, got: %q", diagnosticBuf.String())
+		}
+	})
+
+	assertExitCode(t, codes, 1)
 }

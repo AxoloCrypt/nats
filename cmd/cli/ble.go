@@ -83,8 +83,17 @@ func renderBLEDone(w io.Writer, deviceCount int) {
 // produces the "severity: message" / "  reason: ..." shape, even though
 // core/ble.Diagnostic is a distinct type from engine.Diagnostic (NL-AD-1's
 // import-boundary rule forbids core/ble depending on core/engine).
-func renderBLEDiagnostic(w io.Writer, d ble.Diagnostic) {
-	renderDiagnostic(w, engine.Diagnostic{
+//
+// It returns whether d was error-severity — purely a passthrough of
+// renderDiagnostic's own return value, since severity is part of the
+// engine.Diagnostic shape d was just converted into, not a notion BLE
+// resolves independently (NL-AD-1: core/ble.Diagnostic has no severity logic
+// of its own). This lets runBLEScan track a run's overall exit status
+// without itself reading a ble.Diagnostic field — renderBLEDiagnostic must
+// stay the only reader of ble.Diagnostic's fields outside this conversion,
+// per the AD-8 enforcement test (diagnostic_enforcement_test.go).
+func renderBLEDiagnostic(w io.Writer, d ble.Diagnostic) bool {
+	return renderDiagnostic(w, engine.Diagnostic{
 		Severity: d.Severity,
 		Message:  d.Message,
 		Reason:   d.Reason,
@@ -104,14 +113,22 @@ func renderBLEDiagnostic(w io.Writer, d ble.Diagnostic) {
 // progressWriter/diagnosticWriter directly. The two are deliberately spelled
 // differently so the inverted meaning can't be missed — writing a progress
 // line to this parameter would land it on stdout and corrupt --format json.
-func runBLEScan(reportW io.Writer, events <-chan ble.Event, writer ble.Writer, outputFile string) {
+// runBLEScan reports whether any error-severity Diagnostic was rendered
+// during the run (from evt.Diagnostics and the three inline render/write-
+// failure diagnostics below) — mirrors runScan's return value in root.go,
+// the single source of truth bleCmd.RunE consults to decide whether to
+// osExit(1).
+func runBLEScan(reportW io.Writer, events <-chan ble.Event, writer ble.Writer, outputFile string) bool {
+	sawError := false
 	for evt := range events {
 		if evt.Kind != ble.EventKindDone {
 			continue
 		}
 		renderBLEDone(progressWriter, len(evt.Report.Devices))
 		for _, d := range evt.Diagnostics {
-			renderBLEDiagnostic(diagnosticWriter, d)
+			if renderBLEDiagnostic(diagnosticWriter, d) {
+				sawError = true
+			}
 		}
 
 		out, err := writer.Write(evt.Report)
@@ -121,6 +138,7 @@ func runBLEScan(reportW io.Writer, events <-chan ble.Event, writer ble.Writer, o
 				Message:  "failed to render BLE scan summary",
 				Reason:   err.Error(),
 			})
+			sawError = true
 			continue
 		}
 		if _, err := reportW.Write(out); err != nil {
@@ -129,6 +147,7 @@ func runBLEScan(reportW io.Writer, events <-chan ble.Event, writer ble.Writer, o
 				Message:  "failed to write BLE scan summary",
 				Reason:   err.Error(),
 			})
+			sawError = true
 		}
 		if outputFile != "" {
 			if err := writeReportFile(outputFile, out, 0o644); err != nil {
@@ -137,9 +156,11 @@ func runBLEScan(reportW io.Writer, events <-chan ble.Event, writer ble.Writer, o
 					Message:  "failed to write BLE scan summary to file",
 					Reason:   err.Error(),
 				})
+				sawError = true
 			}
 		}
 	}
+	return sawError
 }
 
 var bleCmd = &cobra.Command{
@@ -161,7 +182,11 @@ twice in a row produces two fully independent result sets.
 
 Results are rendered in the same table/JSON/markdown/plain formats "nats
 scan" supports, selected via --format (default table), and can optionally
-also be written to a file via --output-file.`, ble.DefaultOptions().Window),
+also be written to a file via --output-file.
+
+Exit code: 0 on a clean, warning-only, or zero-device scan (finding nothing
+nearby is ordinary, not a failure) — 1 only for an invalid flag or a write
+failure.`, ble.DefaultOptions().Window),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		opts := buildBLEOptions(cmd)
 
@@ -177,6 +202,10 @@ also be written to a file via --output-file.`, ble.DefaultOptions().Window),
 				Message:  fmt.Sprintf("invalid --window %s", opts.Window),
 				Reason:   "expected a duration greater than zero (e.g. 5s)",
 			})
+			// osExit(1), not return fmt.Errorf(...): see the matching
+			// comment on scanCmd.RunE's --format check in root.go — cobra
+			// would otherwise double-print this on top of the diagnostic.
+			osExit(1)
 			return nil
 		}
 
@@ -191,6 +220,7 @@ also be written to a file via --output-file.`, ble.DefaultOptions().Window),
 				Message:  fmt.Sprintf("unrecognized output format %q", format),
 				Reason:   "expected one of: " + strings.Join(ble.WriterNames(), ", "),
 			})
+			osExit(1)
 			return nil
 		}
 
@@ -201,7 +231,9 @@ also be written to a file via --output-file.`, ble.DefaultOptions().Window),
 		}
 
 		outputFile, _ := cmd.Flags().GetString("output-file")
-		runBLEScan(reportWriter, events, writer, strings.TrimSpace(outputFile))
+		if runBLEScan(reportWriter, events, writer, strings.TrimSpace(outputFile)) {
+			osExit(1)
+		}
 		return nil
 	},
 }
