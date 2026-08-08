@@ -156,7 +156,15 @@ discovery/*  →  core/engine (Merge, Classify)  →  enrich/*  →  report/*
   info (not name matching) across `cmd/cli`, `core/engine` **and**
   `core/ble` to fail the build if any other function reads those fields —
   keep that invariant in mind before adding new diagnostic-printing code
-  anywhere.
+  anywhere. `cmd/cli/version.go` adds the third subcommand, `version`, which
+  touches neither engine: it prints `cmd/cli`'s `version` variable, whose
+  literal is only the fallback for a local `go build` — GoReleaser's *default*
+  ldflags (`-X main.version={{.Version}}`) overwrite it with the `v*` tag on
+  every release build. That's why `.goreleaser.yaml` declares no `ldflags:` of
+  its own, and why adding one without re-adding `-X main.version=` would
+  silently ship binaries reporting a stale version;
+  `TestGoReleaserConfigDoesNotOverrideVersionLdflags` fails the build if that
+  happens. Releases are versioned by tagging, not by editing that literal.
 
 ## Conventions to follow when adding or changing code
 

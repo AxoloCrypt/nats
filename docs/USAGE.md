@@ -114,6 +114,22 @@ alongside `devices`. If Bluetooth permission is denied the scan is skipped,
 `devices` is empty, and the reason appears in `diagnostics` — that is how a
 script tells "nothing was nearby" from "the scan never ran".
 
+## Checking the version
+
+```
+$ nats version
+nats v0.1.0
+```
+
+`nats version` takes no flags, reads nothing from the network or the host,
+and always exits 0. Its output goes to stdout, so it can be captured
+directly (`nats version > version.txt`).
+
+A binary from the [Releases page](https://github.com/AxoloCrypt/nats/releases)
+reports the tag it was built from — quote it when filing an issue. A binary
+you built yourself with `go build` reports the in-development version
+compiled into the source, which is not necessarily any released version.
+
 ## Privilege requirements (root/sudo/Administrator)
 
 Some techniques and enrichers need to open a raw socket or packet capture
@@ -165,3 +181,9 @@ Releases are cut via [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`)
 and GitHub Actions (`.github/workflows/ci.yaml`): every push runs
 `go build`/`go test`, and pushing a `v*` tag cross-compiles and publishes
 binaries for all four platforms listed above.
+
+The tag is also what a released binary reports from `nats version`:
+GoReleaser's default ldflags inject it into `cmd/cli`'s `version` variable at
+build time, so tagging is the only step needed to version a release — there
+is no separate value to bump by hand for the released binaries. The literal
+in `cmd/cli/version.go` is only the fallback for a local `go build`.

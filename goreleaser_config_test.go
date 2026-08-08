@@ -12,6 +12,8 @@ var buildsSectionRe = regexp.MustCompile(`(?ms)^builds:\n(.*?)(?:^\S|\z)`)
 var buildEntryRe = regexp.MustCompile(`(?m)^  - id:`)
 var goosRe = regexp.MustCompile(`(?m)^\s*goos:\s*\[(\w+)\]`)
 var goarchRe = regexp.MustCompile(`(?m)^\s*goarch:\s*\[(\w+)\]`)
+var ldflagsRe = regexp.MustCompile(`(?m)^\s*ldflags:`)
+var mainVersionRe = regexp.MustCompile(`-X\s+main\.version=`)
 
 // TestGoReleaserConfigTargetsMatchSupportedPlatforms fails CI if
 // .goreleaser.yaml's build matrix ever drifts from the four platforms this
@@ -73,6 +75,45 @@ func TestGoReleaserConfigTargetsMatchSupportedPlatforms(t *testing.T) {
 	for target := range got {
 		if !want[target] {
 			t.Errorf("target %q in .goreleaser.yaml is not one of the four supported platforms — adding or removing a release target is a deliberate change to the supported-platform set, not a routine .goreleaser.yaml edit", target)
+		}
+	}
+}
+
+// TestGoReleaserConfigDoesNotOverrideVersionLdflags protects what `nats
+// version` reports on a released binary. cmd/cli's `version` variable holds a
+// fallback literal and relies on GoReleaser's *default* ldflags
+// (-s -w -X main.version={{.Version}} ...) to overwrite it with the v* tag
+// being built — defaults that apply only because no build entry declares
+// ldflags of its own.
+//
+// Adding a custom ldflags: for any other reason (a second -X, a linker mode)
+// silently replaces those defaults wholesale rather than appending to them, so
+// every released binary would keep reporting the stale in-repo literal while
+// still building, testing, and publishing cleanly — a failure with no symptom
+// short of running the shipped binary. Custom ldflags are allowed here, but
+// only if they carry -X main.version= themselves.
+func TestGoReleaserConfigDoesNotOverrideVersionLdflags(t *testing.T) {
+	data, err := os.ReadFile(".goreleaser.yaml")
+	if err != nil {
+		t.Fatalf("reading .goreleaser.yaml: %v", err)
+	}
+	content := string(data)
+
+	section := buildsSectionRe.FindStringSubmatch(content)
+	if section == nil {
+		t.Fatalf("could not find a builds: section in .goreleaser.yaml")
+	}
+
+	entries := buildEntryRe.Split(section[1], -1)
+	for _, entry := range entries {
+		if entry == "" {
+			continue
+		}
+		if !ldflagsRe.MatchString(entry) {
+			continue
+		}
+		if !mainVersionRe.MatchString(entry) {
+			t.Errorf("a build entry declares custom ldflags without -X main.version=, which replaces GoReleaser's defaults and would make released binaries report cmd/cli's fallback version literal instead of their own tag:\n%s", entry)
 		}
 	}
 }

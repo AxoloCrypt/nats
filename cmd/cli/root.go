@@ -323,6 +323,9 @@ func init() {
 	scanCmd.Flags().String("output-file", "", "Additionally write the scan summary to this file, verbatim, alongside the normal stdout output. Unset: stdout only.")
 	rootCmd.AddCommand(scanCmd)
 	rootCmd.AddCommand(bleCmd)
+	// versionCmd takes no flags of its own, so unlike scanCmd/bleCmd it needs
+	// nothing but this registration.
+	rootCmd.AddCommand(versionCmd)
 }
 
 func Execute() {
