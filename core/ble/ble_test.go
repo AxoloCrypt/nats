@@ -35,8 +35,8 @@ func (f *fakeScanner) Scan(ctx context.Context, window time.Duration) (<-chan Ad
 
 // drainToDone runs Run and collects every event it emits, failing the test if
 // the channel doesn't close within a bounded time. The timeout is the point:
-// Story 4.6 AC #1 requires the command to "complete cleanly rather than crash
-// or hang" on a degraded path, so a Run that leaks its goroutine and never
+// the command must complete cleanly rather than crash or hang on a degraded
+// path, so a Run that leaks its goroutine and never
 // closes the channel has to fail the test rather than block the suite until
 // Go's package-level 10m panic.
 func drainToDone(t *testing.T, opts Options) []Event {
@@ -67,8 +67,8 @@ func drainToDone(t *testing.T, opts Options) []Event {
 // assertDegradedDone asserts the shape every skipped-scan path must produce:
 // exactly one event, a Done, carrying exactly one warning Diagnostic and an
 // empty Report. "Exactly one Diagnostic" is the machine-checkable form of
-// Task 2's rule — no second, generic diagnostic may be stacked on top of the
-// one that already explains the empty result.
+// the rule: no second, generic diagnostic may be stacked on top of the one
+// that already explains the empty result.
 func assertDegradedDone(t *testing.T, got []Event) Diagnostic {
 	t.Helper()
 
@@ -91,7 +91,7 @@ func assertDegradedDone(t *testing.T, got []Event) Diagnostic {
 }
 
 // assertNoErrorSeverity is the direct guard against core/ble ever growing
-// core/engine's "no devices discovered" error diagnostic (Task 2).
+// core/engine's "no devices discovered" error diagnostic.
 func assertNoErrorSeverity(t *testing.T, diags []Diagnostic) {
 	t.Helper()
 
@@ -186,7 +186,7 @@ func TestRun_ProbeOKPath(t *testing.T) {
 
 	// Two DeviceFound events (one per Advertisement) followed by exactly one
 	// Done, with the channel closing immediately after — no event follows
-	// Done (mirrors base AD-3's invariant).
+	// Done (mirrors the LAN vertical's event-stream invariant).
 	if len(got) != 3 {
 		t.Fatalf("expected 2 DeviceFound events + 1 Done, got %d: %+v", len(got), got)
 	}
@@ -224,8 +224,8 @@ func TestRun_CompilesBLEDeviceProfilesInObservedOrder(t *testing.T) {
 			// TX Power absent — falls back to EstimateDistance's assumed default.
 			{Address: "11:22:33:44:55:66", Name: "AirTag", RSSI: -70, CompanyID: &appleID},
 			// No Name broadcast and no CompanyID — must compile to an empty
-			// Name (never "unknown"; that substitution is a Writer's job,
-			// Story 4.7) and Vendor "unknown".
+			// Name (never "unknown"; that substitution is a Writer's job)
+			// and Vendor "unknown".
 			{Address: "77:88:99:00:11:22", RSSI: -80},
 		},
 	})
@@ -271,7 +271,7 @@ func TestRun_CompilesBLEDeviceProfilesInObservedOrder(t *testing.T) {
 	if len(report.Devices) != len(want) {
 		t.Fatalf("expected %d devices in the final Report, got %d: %+v", len(want), len(report.Devices), report.Devices)
 	}
-	// DistanceEstimate's exact numbers aren't pinned by spec (Story 4.3) —
+	// DistanceEstimate's exact numbers aren't pinned by any specification —
 	// assert its shape structurally rather than against a hardcoded string.
 	// distancePattern is the package-level regex declared in distance_test.go.
 	for i := range want {
@@ -290,13 +290,11 @@ func TestRun_CompilesBLEDeviceProfilesInObservedOrder(t *testing.T) {
 
 // TestRun_DedupesRepeatedAdvertisementsByAddress proves core/ble.Run merges
 // repeated advertisements from the same physical device (same Address)
-// into a single Report.Devices row instead of one row per raw packet —
-// closing the Epic 4 retrospective's highest-impact deferred item (flagged
-// in Story 4.2's and 4.7's reviews). Exercises all three merge rules from
-// spec-ble-advertisement-dedup.md's I/O matrix in one scan: DistanceEstimate
-// always takes the latest reading; Name/Vendor/DeviceType resolve from the
-// first packet that carries the signal and are never blanked back by a
-// later, less-informative one; distinct Addresses are unaffected.
+// into a single Report.Devices row instead of one row per raw packet.
+// Exercises all three merge rules in one scan: DistanceEstimate always takes
+// the latest reading; Name/Vendor/DeviceType resolve from the first packet
+// that carries the signal and are never blanked back by a later,
+// less-informative one; distinct Addresses are unaffected.
 func TestRun_DedupesRepeatedAdvertisementsByAddress(t *testing.T) {
 	orig := scanner
 	defer func() { scanner = orig }()
@@ -528,11 +526,11 @@ func TestRun_MergePathStillObservesCtxCancellation(t *testing.T) {
 }
 
 // TestRun_TwoConsecutiveCallsAreIndependent is the concrete, automatable
-// proof of AC #1's "two fully independent result sets" requirement
-// (NL-AD-12): back-to-back Run() calls, with the registered BLEScanner
-// swapped between them, must never let the second call's Report see a
-// device from the first. This is the regression guard against someone
-// later adding a well-intentioned in-memory cache/accumulator to core/ble.
+// proof that two runs produce two fully independent result sets:
+// back-to-back Run() calls, with the registered BLEScanner swapped between
+// them, must never let the second call's Report see a device from the
+// first. This is the regression guard against someone later adding a
+// well-intentioned in-memory cache/accumulator to core/ble.
 func TestRun_TwoConsecutiveCallsAreIndependent(t *testing.T) {
 	orig := scanner
 	defer func() { scanner = orig }()
@@ -594,16 +592,15 @@ func TestRun_TwoConsecutiveCallsAreIndependent(t *testing.T) {
 	}
 }
 
-// TestRun_NeverWritesAnyFileToDisk guards NL-AD-12's "no on-disk cache,
-// database, or history file" clause of AC #1: a full Run() call must leave
-// every location an accidental cache would plausibly land in exactly as
-// empty as it found it. The working directory alone isn't enough — a
-// well-intentioned cache is far more likely to reach for os.UserCacheDir()
-// or $HOME — so HOME and XDG_CACHE_HOME are redirected at temp dirs and
-// checked too. Story 4.7 is what eventually adds an explicit,
-// user-requested --output-file write — additive to stdout, opt-in — which
-// doesn't exist yet at this point in the epic and isn't what this test is
-// guarding against.
+// TestRun_NeverWritesAnyFileToDisk guards the vertical's "no on-disk cache,
+// database, or history file" rule: a full Run() call must leave every
+// location an accidental cache would plausibly land in exactly as empty as
+// it found it. The working directory alone isn't enough — a well-intentioned
+// cache is far more likely to reach for os.UserCacheDir() or $HOME — so HOME
+// and XDG_CACHE_HOME are redirected at temp dirs and checked too. The
+// explicit, user-requested --output-file write is additive to stdout and
+// opt-in, driven from cmd/cli rather than from core/ble.Run, so it isn't
+// what this test is guarding against.
 func TestRun_NeverWritesAnyFileToDisk(t *testing.T) {
 	orig := scanner
 	defer func() { scanner = orig }()
@@ -656,7 +653,7 @@ func TestRun_NeverWritesAnyFileToDisk(t *testing.T) {
 }
 
 // TestRun_ProbeFail_SurfacesEachScannerReasonVerbatim is the anti-hardcoding
-// proof for AC #1's "why" half: the warning's Reason is whatever the adapter
+// proof for the warning's "why" half: the Reason is whatever the adapter
 // actually diagnosed, passed straight through. Table-driven across several
 // unrelated reason strings so an implementation that substitutes one fixed,
 // generic sentence — discarding the adapter's real diagnosis — can't pass by
@@ -665,8 +662,8 @@ func TestRun_ProbeFail_SurfacesEachScannerReasonVerbatim(t *testing.T) {
 	reasons := []string{
 		"Bluetooth permission denied",
 		"Bluetooth adapter unavailable",
-		// The reason discovery/blescan actually produced on the Story 4.1 dev
-		// host, verbatim — a real, long, platform-specific string.
+		// A reason discovery/blescan actually produced on a real dev host,
+		// verbatim — a long, platform-specific string.
 		"could not activate BlueZ adapter: The name org.bluez was not provided by any .service files",
 	}
 
@@ -682,8 +679,8 @@ func TestRun_ProbeFail_SurfacesEachScannerReasonVerbatim(t *testing.T) {
 			if diag.Reason != reason {
 				t.Fatalf("expected the scanner's own reason %q passed through verbatim, got %q", reason, diag.Reason)
 			}
-			// The "what" half of AC #1: the message has to name the scan that
-			// was skipped, not just report that something went wrong.
+			// The "what" half of the warning: the message has to name the scan
+			// that was skipped, not just report that something went wrong.
 			if !strings.Contains(diag.Message, "BLE scan") {
 				t.Fatalf("expected the message to name what was skipped (the BLE scan), got %q", diag.Message)
 			}
@@ -696,8 +693,8 @@ func TestRun_ProbeFail_SurfacesEachScannerReasonVerbatim(t *testing.T) {
 // in the probe-fail path: BLEScanner.Probe's contract lets an implementation
 // return ok=false with an empty reason, and cmd/cli's renderDiagnostic drops
 // the "reason:" line entirely when Reason is "". That combination would print
-// a bare "warning: BLE scan skipped" — naming what was skipped but never why,
-// which AC #1 requires both halves of. The fallback is only ever reached when
+// a bare "warning: BLE scan skipped" — naming what was skipped but never
+// why, when both halves are required. The fallback is only ever reached when
 // the scanner supplied nothing; a real reason is never replaced (the table
 // test above is what pins that).
 func TestRun_ProbeFail_WithoutAReasonStillExplainsWhy(t *testing.T) {
@@ -713,8 +710,8 @@ func TestRun_ProbeFail_WithoutAReasonStillExplainsWhy(t *testing.T) {
 	}
 }
 
-// TestRun_ProbeOKWithZeroDevices_IsNotAnError is the story's central
-// judgement call (Task 2). core/engine.Run appends an error-severity "no
+// TestRun_ProbeOKWithZeroDevices_IsNotAnError pins a deliberate divergence
+// from the LAN vertical. core/engine.Run appends an error-severity "no
 // devices discovered" Diagnostic when a scan finds nothing, because LAN
 // scanning can reasonably assume at least a router is reachable. BLE cannot
 // assume anything of the sort — standing somewhere with nothing broadcasting

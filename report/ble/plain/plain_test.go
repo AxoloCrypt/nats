@@ -88,9 +88,9 @@ func TestWrite_EmptyDeviceRendersFallbacks(t *testing.T) {
 	}
 
 	s := string(out)
-	// Every absent field, not just Name and DeviceType: AD-11's guarantee is
-	// that no field is ever silently blank, and Distance was previously left
-	// to whatever core/ble happened to supply.
+	// Every absent field, not just Name and DeviceType: the guarantee is that
+	// no field is ever silently blank, and Distance was previously left to
+	// whatever core/ble happened to supply.
 	for _, want := range []string{"Name: unknown", "Vendor: unknown", "Device Type: unknown", "Distance: unknown"} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("expected %q in the rendered block, got: %q", want, s)

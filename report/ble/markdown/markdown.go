@@ -1,5 +1,5 @@
-// Package markdown renders a BLE Report as a Markdown table (spine AD-11),
-// reusing the same column set as report/ble/table: Address, Name, Vendor,
+// Package markdown renders a BLE Report as a Markdown table, reusing the
+// same column set as report/ble/table: Address, Name, Vendor,
 // Device Type, Distance. It consumes only core/ble's final Report struct,
 // never core/ble's live scan state.
 package markdown

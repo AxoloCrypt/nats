@@ -1,6 +1,6 @@
 // Package tcpconnect implements engine.Enricher via a TCP connect scan
-// against a fixed default port list, one of the three default enrichers
-// (FR-5, FR-8, AD-12).
+// against a fixed default port list, one of the always-on default
+// enrichers.
 package tcpconnect
 
 import (
@@ -16,15 +16,15 @@ func init() {
 	engine.RegisterEnricher(&enricher{})
 }
 
-// defaultPorts is the v1 default port list for the connect scan. FR-5 says
-// "TCP connect port scan" without pinning an exact set, so this is a small
-// common-services list (not the full well-known-ports range) chosen to keep
-// an unprivileged connect scan against every discovered device fast: FTP
-// (21), SSH (22), Telnet (23), SMTP (25), DNS (53), HTTP (80), POP3 (110),
-// NetBIOS (139), IMAP (143), HTTPS (443), SMB (445), RDP (3389), HTTP
-// alt/proxy (8080), IPP (631), JetDirect (9100), RTSP (554), Chromecast
-// control (8009) — the last four added by Story 2.4 so its printer/smart-tv
-// port-signature classification has real port data to classify against.
+// defaultPorts is the v1 default port list for the connect scan. No exact
+// set is mandated, so this is a small common-services list (not the full
+// well-known-ports range) chosen to keep an unprivileged connect scan
+// against every discovered device fast: FTP (21), SSH (22), Telnet (23),
+// SMTP (25), DNS (53), HTTP (80), POP3 (110), NetBIOS (139), IMAP (143),
+// HTTPS (443), SMB (445), RDP (3389), HTTP alt/proxy (8080), IPP (631),
+// JetDirect (9100), RTSP (554), Chromecast control (8009) — the last four
+// are here so core/engine's printer/smart-tv port-signature classification
+// has real port data to classify against.
 var defaultPorts = []int{21, 22, 23, 25, 53, 80, 110, 139, 143, 443, 445, 554, 631, 3389, 8009, 8080, 9100}
 
 type enricher struct{}
@@ -40,9 +40,9 @@ func (e *enricher) RequiresPrivilege() bool {
 
 // ProbePrivilege implements engine.PrivilegeProber. A plain TCP connect
 // never needs elevated privilege on any target platform, but it is still
-// implemented as a live probe (AD-5) rather than a hardcoded false, for
-// consistency with every other adapter — including Story 2.3's opt-in raw
-// socket enrichers, which do need a real check.
+// implemented as a live probe rather than a hardcoded false, for
+// consistency with every other adapter — including the opt-in raw-socket
+// enrichers, which do need a real check.
 func (e *enricher) ProbePrivilege() (bool, error) {
 	return probePrivilege()
 }

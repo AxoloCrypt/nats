@@ -89,10 +89,10 @@ func TestRealEnrichersSelfRegisterViaBlankImport(t *testing.T) {
 	if _, ok := engine.GetEnricher("tcpconnect"); !ok {
 		t.Fatal("expected the real \"tcpconnect\" enricher to be registered via root.go's blank import")
 	}
-	// Story 2.3's three opt-in enrichers: registered the same way as the
-	// defaults (AD-6's registry doesn't imply "on by default"), so this is
-	// the only place a Name()/registration mismatch for these three real
-	// packages would surface (core/engine can't import enrich/* itself).
+	// The three opt-in enrichers: registered the same way as the defaults
+	// (being in the registry doesn't imply "on by default"), so this is the
+	// only place a Name()/registration mismatch for these three real packages
+	// would surface (core/engine can't import enrich/* itself).
 	if _, ok := engine.GetEnricher("tcpsyn"); !ok {
 		t.Fatal("expected the real \"tcpsyn\" enricher to be registered via root.go's blank import")
 	}
@@ -105,7 +105,7 @@ func TestRealEnrichersSelfRegisterViaBlankImport(t *testing.T) {
 }
 
 // fakeSightingTechnique reports two Sightings with distinct MAC identities
-// (so Merge treats them as two separate Devices, AD-4) but both on loopback,
+// (so Merge treats them as two separate Devices) but both on loopback,
 // used only to get Devices through Merge without depending on a real network
 // interface (arp/icmp/mdns/ssdp all need one).
 type fakeSightingTechnique struct{}
@@ -124,8 +124,8 @@ func TestRun_DefaultEnrichOptionsInvokesAllThreeRealEnrichersPerDevice(t *testin
 	// Exercises the real core/engine.Run against the real dns/oui/tcpconnect
 	// enrichers self-registered via root.go's blank imports — core/engine's
 	// own package tests can't do this (importing enrich/* there would be a
-	// cycle), so this is the only place the full FR-5 default set is
-	// verified end-to-end (Task 3/AD-12).
+	// cycle), so this is the only place the full always-on default set is
+	// verified end-to-end.
 	engine.RegisterTechnique(&fakeSightingTechnique{})
 
 	// Bounds the real tcpconnect port scan (real sockets against loopback)
@@ -788,9 +788,9 @@ func TestScanCommand_UnrecognizedFormat_ProducesErrorDiagnosticNotSilentDefault(
 	assertExitCode(t, codes, 1)
 }
 
-// TestScanCommand_ProgressOutputIdenticalAcrossAllFormats is Task 5/AC #2's
-// regression test: live progress renders from the Event stream (AD-3)
-// independently of which Writer (AD-7) consumes the final Report, so a
+// TestScanCommand_ProgressOutputIdenticalAcrossAllFormats is the regression
+// test for progress/report separation: live progress renders from the Event
+// stream independently of which Writer consumes the final Report, so a
 // scripted Event stream must produce byte-identical progress output no
 // matter which --format is selected.
 func TestScanCommand_ProgressOutputIdenticalAcrossAllFormats(t *testing.T) {
@@ -850,9 +850,9 @@ func doneEventWithOneDevice() engine.Event {
 }
 
 // TestScanCommand_OutputFileFlag_WritesByteIdenticalContentToStdoutAndFile is
-// Task 4's first case for AC #1: with --output-file set, the named file must
+// the first --output-file case: with the flag set, the named file must
 // contain exactly the same bytes as were written to stdout — the Writer
-// output is wrapped, not re-derived via a separate encoding path (AD-7).
+// output is wrapped, not re-derived via a separate encoding path.
 func TestScanCommand_OutputFileFlag_WritesByteIdenticalContentToStdoutAndFile(t *testing.T) {
 	origRun := engineRun
 	defer func() { engineRun = origRun }()
@@ -891,9 +891,9 @@ func TestScanCommand_OutputFileFlag_WritesByteIdenticalContentToStdoutAndFile(t 
 	})
 }
 
-// TestScanCommand_NoOutputFileFlag_StdoutOnlyBehaviorUnchanged is Task 4's
-// second case for AC #2: unset --output-file must behave exactly like the
-// pre-existing Epic 1/Story 3.1 stdout-only default, with no file created.
+// TestScanCommand_NoOutputFileFlag_StdoutOnlyBehaviorUnchanged is the second
+// --output-file case: leaving the flag unset must behave exactly like the
+// pre-existing stdout-only default, with no file created.
 func TestScanCommand_NoOutputFileFlag_StdoutOnlyBehaviorUnchanged(t *testing.T) {
 	origRun := engineRun
 	defer func() { engineRun = origRun }()
@@ -926,7 +926,7 @@ func TestScanCommand_NoOutputFileFlag_StdoutOnlyBehaviorUnchanged(t *testing.T) 
 }
 
 // TestScanCommand_WhitespaceOnlyOutputFile_KeepsStdoutOnlyBehavior guards
-// against the same bug Story 3.1's review caught and fixed for --format:
+// against the same bug previously caught and fixed for --format:
 // --output-file must be trimmed before the emptiness check, so a
 // whitespace-only value falls back to stdout-only instead of silently
 // creating an oddly-named file.
@@ -980,8 +980,8 @@ func TestScanCommand_WhitespaceOnlyOutputFile_KeepsStdoutOnlyBehavior(t *testing
 }
 
 // TestScanCommand_OutputFileWriteFailure_ProducesErrorDiagnosticAndStdoutStillShown
-// is Task 3/Task 4's file-write-failure case: a failed file write must
-// surface as an error Diagnostic (AD-8), never a raw Go error or silent
+// is the file-write-failure case: a failed file write must surface as an
+// error Diagnostic, never a raw Go error or silent
 // failure, and must not prevent the pre-existing stdout summary from still
 // being shown.
 func TestScanCommand_OutputFileWriteFailure_ProducesErrorDiagnosticAndStdoutStillShown(t *testing.T) {
@@ -1025,12 +1025,12 @@ func TestScanCommand_OutputFileWriteFailure_ProducesErrorDiagnosticAndStdoutStil
 	assertExitCode(t, codes, 1)
 }
 
-// TestScanCommand_ProgressOutputIdenticalWithAndWithoutOutputFile is Task 2's
-// regression test: progress rendering (Event-sourced, AD-3) and the file
-// write (final Report/Writer-sourced, AD-7) are structurally separate code
-// paths, so a scripted Event stream must produce byte-identical progress
-// output whether or not --output-file is set, mirroring Story 3.1's Task 5
-// regression test for --format.
+// TestScanCommand_ProgressOutputIdenticalWithAndWithoutOutputFile is the
+// regression test for progress/file-write separation: progress rendering
+// (Event-sourced) and the file write (final Report/Writer-sourced) are
+// structurally separate code paths, so a scripted Event stream must produce
+// byte-identical progress output whether or not --output-file is set,
+// mirroring the equivalent regression test for --format.
 func TestScanCommand_ProgressOutputIdenticalWithAndWithoutOutputFile(t *testing.T) {
 	origRun := engineRun
 	defer func() { engineRun = origRun }()

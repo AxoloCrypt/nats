@@ -67,7 +67,7 @@ func TestWrite_FullyPopulatedDevice(t *testing.T) {
 // Assertions below check cells by position rather than with strings.Contains:
 // a substring check for "unknown" is satisfied by any one column rendering
 // it, so it cannot tell "every absent field got a placeholder" from "one did
-// and the rest are blank" — which is precisely the guarantee AD-11 makes.
+// and the rest are blank" — which is precisely the guarantee being made.
 func deviceRow(t *testing.T, out []byte) []string {
 	t.Helper()
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")

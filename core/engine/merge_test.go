@@ -257,10 +257,10 @@ func TestMerge_SameMACAtSecondIPStillClaimsNoMACSighting(t *testing.T) {
 	}
 }
 
-// AC #2 (Story 2.1) requires a real, discovery-sourced Hostname/Vendor for
-// an enricher to have something to override (AD-10). These confirm Merge
-// actually copies ServiceData into the Device it produces, through the real
-// Sighting -> Merge -> Device path, not just a hand-built Device literal.
+// An enricher can only be shown to override a discovery-sourced
+// Hostname/Vendor if Merge actually produced one. These confirm Merge copies
+// ServiceData into the Device it produces, through the real Sighting ->
+// Merge -> Device path, not just a hand-built Device literal.
 
 func TestMerge_CopiesHostnameFromServiceDataMACMatch(t *testing.T) {
 	sightings := []Sighting{
@@ -324,9 +324,9 @@ func TestMerge_NoServiceDataLeavesHostnameAndVendorEmpty(t *testing.T) {
 	}
 }
 
-// Story 2.4's classifier is the first consumer of a Device's ServiceData —
-// AD-4's original merge rule didn't require preserving it. These confirm
-// Merge carries it through onto the Device, key by key, the same
+// Classify is the first consumer of a Device's ServiceData — identity
+// merging alone doesn't require preserving it. These confirm Merge carries
+// it through onto the Device, key by key, the same
 // first-non-empty-wins policy as Hostname/Vendor.
 
 func TestMerge_CarriesServiceDataThroughOntoDevice(t *testing.T) {

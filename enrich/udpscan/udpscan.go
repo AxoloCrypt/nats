@@ -1,6 +1,6 @@
 // Package udpscan implements engine.Enricher via a raw UDP scan, one of
-// three opt-in "deeper enrichment" enrichers (FR-6) that never run unless a
-// user explicitly names them via cmd/cli's --enrich flag.
+// three opt-in "deeper enrichment" enrichers that never run unless a user
+// explicitly names them via cmd/cli's --enrich flag.
 package udpscan
 
 import (
@@ -20,8 +20,8 @@ func init() {
 	engine.RegisterEnricher(&enricher{})
 }
 
-// scanPorts mirrors enrich/tcpconnect's default port list (Story 2.2),
-// substituting the two common UDP services (DNS 53, SNMP 161) for a couple
+// scanPorts mirrors enrich/tcpconnect's default port list, substituting the
+// two common UDP services (DNS 53, SNMP 161) for a couple
 // of tcpconnect's TCP-only entries — kept otherwise aligned so a "deeper"
 // scan is still recognizably the same common-services sweep.
 var scanPorts = []int{53, 67, 68, 69, 123, 137, 138, 161, 162, 443, 500, 1900, 5353}
@@ -46,7 +46,7 @@ func (e *enricher) RequiresPrivilege() bool {
 // ProbePrivilege implements engine.PrivilegeProber, exposing the real
 // underlying error (e.g. permission denied, missing libpcap/Npcap driver)
 // instead of the generic "requires privilege" message RequiresPrivilege()
-// alone can only imply (AC #2, #3).
+// alone can only imply.
 func (e *enricher) ProbePrivilege() (bool, error) {
 	return probePrivilege()
 }
@@ -139,8 +139,8 @@ func containsInt(ports []int, port int) bool {
 
 // upsertUDPPort builds the OpenPort value to pass to device.Upsert for a udp
 // port, preserving any field already recorded on a matching existing entry
-// — Upsert itself does a full-struct overwrite (AD-11), so building a bare
-// literal here would silently blank a field owned by a different enricher
+// — Upsert itself does a full-struct overwrite, so building a bare literal
+// here would silently blank a field owned by a different enricher
 // that already ran (mirrors enrich/tcpsyn's identical guard).
 func upsertUDPPort(device engine.Device, port int, state string) engine.OpenPort {
 	entry := engine.OpenPort{Port: port, Protocol: "udp", State: state}

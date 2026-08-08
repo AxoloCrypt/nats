@@ -1,6 +1,6 @@
-// Package table renders a BLE Report as a plain-text summary table (spine
-// AD-11), mirroring report/table's structure: ADDRESS, NAME, VENDOR, DEVICE
-// TYPE, DISTANCE. It consumes only core/ble's final Report struct, never
+// Package table renders a BLE Report as a plain-text summary table,
+// mirroring report/table's structure: ADDRESS, NAME, VENDOR, DEVICE TYPE,
+// DISTANCE. It consumes only core/ble's final Report struct, never
 // core/ble's live scan state.
 package table
 
@@ -35,8 +35,8 @@ func (Writer) Write(r ble.Report) ([]byte, error) {
 	for _, d := range r.Devices {
 		// Placeholder substitution and sanitization for every column live in
 		// blerender, shared with report/ble/markdown and report/ble/plain —
-		// including Name's empty-value fallback, the substitution Story 4.2
-		// deferred to "a future Writer" (this one).
+		// including Name's empty-value fallback, which is substituted here at
+		// the writer boundary rather than upstream in core/ble.
 		address, name, vendor, deviceType, distance := blerender.Fields(d)
 		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n",
 			address, name, vendor, deviceType, distance)

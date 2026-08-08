@@ -81,7 +81,8 @@ func (t *technique) ProbePrivilege() (bool, error) {
 }
 
 // EnumerateAddresses implements engine.AddressEnumerator, letting core/engine
-// report how many addresses this sweep will cover (FR-10 pending progress).
+// report how many addresses this sweep will cover, so a driving adapter can
+// show "still pending" progress.
 func (t *technique) EnumerateAddresses(target string) ([]string, error) {
 	_, ipnet, err := net.ParseCIDR(target)
 	if err != nil {

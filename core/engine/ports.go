@@ -11,7 +11,7 @@ type DiscoveryTechnique interface {
 // AddressEnumerator is an optional capability for sweep-based
 // DiscoveryTechniques (e.g. arp, icmp) that probe a fixed, enumerable set of
 // addresses. It lets core/engine report how many addresses a technique will
-// sweep, so a driving adapter can show "still pending" progress (FR-10).
+// sweep, so a driving adapter can show "still pending" progress.
 // Listen-based techniques (mdns, ssdp) have no fixed target set and do not
 // implement this.
 type AddressEnumerator interface {
@@ -35,7 +35,7 @@ type Enricher interface {
 	Enrich(ctx context.Context, device Device) (Device, error)
 }
 
-// Writer renders a final Report as bytes for one output format (AD-7). Each
+// Writer renders a final Report as bytes for one output format. Each
 // implementation (report/table, report/json, report/markdown, report/plain)
 // consumes only the Report — never engine internals — so a Writer stays
 // decoupled from how a scan produced the devices it renders.

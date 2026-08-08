@@ -1,7 +1,7 @@
 // Package banner implements engine.Enricher via best-effort banner
 // grabbing on a Device's already-known open TCP ports (from enrich/
 // tcpconnect or enrich/tcpsyn), one of three opt-in "deeper enrichment"
-// enrichers (FR-6) that never run unless a user explicitly names them via
+// enrichers that never run unless a user explicitly names them via
 // cmd/cli's --enrich flag.
 package banner
 
@@ -32,8 +32,8 @@ func (e *enricher) RequiresPrivilege() bool {
 
 // ProbePrivilege implements engine.PrivilegeProber. Grabbing a banner over
 // an already-open TCP connection needs no special privilege, but it is
-// still implemented as a live probe (AD-5) rather than a hardcoded false,
-// for consistency with every other adapter.
+// still implemented as a live probe rather than a hardcoded false, for
+// consistency with every other adapter.
 func (e *enricher) ProbePrivilege() (bool, error) {
 	return probePrivilege()
 }
@@ -63,7 +63,7 @@ func (e *enricher) Enrich(ctx context.Context, device engine.Device) (engine.Dev
 	for _, existing := range device.OpenPorts {
 		if existing.Protocol != "tcp" || existing.State != "open" {
 			// Banner grabbing only makes sense against a port already
-			// confirmed open by tcpconnect/tcpsyn (AC #4) — a "closed" or
+			// confirmed open by tcpconnect/tcpsyn — a "closed" or
 			// "open|filtered" entry (e.g. udpscan's ambiguous UDP ports)
 			// has nothing listening to read from.
 			continue
@@ -76,7 +76,7 @@ func (e *enricher) Enrich(ctx context.Context, device engine.Device) (engine.Dev
 
 		// Start from the existing entry (not a fresh OpenPort{}) so this
 		// Upsert only adds Banner — Upsert itself replaces the whole
-		// struct (AD-11), and building a fresh value here would silently
+		// struct, and building a fresh value here would silently
 		// blank out Port/Protocol/State's already-recorded values.
 		updated := existing
 		updated.Banner = banner

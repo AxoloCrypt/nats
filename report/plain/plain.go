@@ -1,6 +1,6 @@
-// Package plain renders a Report as simple line-oriented human-readable text
-// (AD-7), with no table-drawing characters, suited to restrictive terminals
-// or log capture. It consumes only the engine's final Report struct, never
+// Package plain renders a Report as simple line-oriented human-readable
+// text, with no table-drawing characters, suited to restrictive terminals or
+// log capture. It consumes only the engine's final Report struct, never
 // core/engine's live state.
 package plain
 
@@ -32,10 +32,9 @@ func (Writer) Write(r engine.Report) ([]byte, error) {
 		if i > 0 {
 			fmt.Fprintln(&buf)
 		}
-		// DeviceType's zero value renders as "unknown" per FR-7, matching
-		// report/table's convention (Story 1.7) — Hostname, Vendor, and
-		// OpenPorts have no such taxonomy default and render as their true
-		// empty/zero value.
+		// DeviceType's zero value renders as "unknown", matching
+		// report/table's convention — Hostname, Vendor, and OpenPorts have no
+		// such taxonomy default and render as their true empty/zero value.
 		deviceType := d.DeviceType
 		if deviceType == "" {
 			deviceType = engine.DeviceTypeUnknown

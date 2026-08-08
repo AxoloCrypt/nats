@@ -10,11 +10,11 @@ import (
 func DefaultOptions() Options {
 	return Options{
 		Techniques: []string{"arp"},
-		// The default set of enrichers (FR-5, AD-12): "dns" and "oui" from
-		// Story 2.1, "tcpconnect" from Story 2.2.
+		// The always-on default set of enrichers: reverse DNS, MAC OUI vendor
+		// lookup, and a TCP connect port scan. None of them needs privilege.
 		EnrichOptions: []string{"dns", "oui", "tcpconnect"},
-		// OutputFormat default carried over from Story 1.7, when "table" was
-		// the only format (AD-7).
+		// "table" is the default output format; the others are opt-in via
+		// --format.
 		OutputFormat: "table",
 	}
 }
@@ -22,7 +22,7 @@ func DefaultOptions() Options {
 // safetyNetTimeout is a defect-only backstop applied to listen-based
 // techniques (mdns, ssdp). Those techniques are responsible for closing
 // their own Sighting channel once a quiescence period with no new sighting
-// has elapsed (AD-13); this timeout exists only to bound a regression where
+// has elapsed; this timeout exists only to bound a regression where
 // that self-termination logic fails to fire, never as part of normal
 // completion. Sweep-based techniques (those implementing AddressEnumerator)
 // close their own channel once every address has been probed and are never
@@ -37,8 +37,8 @@ var safetyNetTimeout = 5 * time.Minute
 // could otherwise stall a scan that would have finished in under a second.
 var enrichTimeout = 30 * time.Second
 
-// deviceKey identifies a Device the same way Merge resolves identity (AD-4):
-// MAC when present, otherwise IP.
+// deviceKey identifies a Device the same way Merge resolves identity: MAC
+// when present, otherwise IP.
 func deviceKey(d Device) string {
 	if d.MAC != "" {
 		return "mac:" + d.MAC
@@ -78,11 +78,11 @@ func recordDeviceEvent(ch chan<- Event, known map[string]Device, d Device, techn
 }
 
 // enrichDevices runs every enricher named in enrichNames, in order, against
-// every Device (FR-5, AD-12). Each enricher receives the previous enricher's
-// output, so a later write to the same field (e.g. Hostname) overrides an
-// earlier one — the keep-vs-overwrite decision for a given field is made
-// inside each enricher (only a successful resolution overwrites), not here;
-// this loop just applies enrichers in order (AD-10). A name with no matching
+// every Device. Each enricher receives the previous enricher's output, so a
+// later write to the same field (e.g. Hostname) overrides an earlier one —
+// the keep-vs-overwrite decision for a given field is made inside each
+// enricher (only a successful resolution overwrites), not here; this loop
+// just applies enrichers in order. A name with no matching
 // registry entry is skipped with a warning diagnostic (not silently) — this
 // is how a real registration regression (e.g. a dropped blank import) gets
 // caught.
@@ -117,8 +117,9 @@ func enrichDevices(ctx context.Context, devices []Device, enrichNames []string, 
 			continue
 		}
 
-		// Reuses TechniqueStarted (AD-3 pins the Event.Kind enumeration) so a
-		// driving adapter's existing progress display keeps moving while an
+		// Reuses TechniqueStarted rather than adding a new Event.Kind (the
+		// enumeration is pinned), so a driving adapter's existing progress
+		// display keeps moving while an
 		// enricher runs, rather than going static for the whole enrichment
 		// phase.
 		ch <- Event{Kind: EventKindTechniqueStarted, Technique: name}
@@ -236,7 +237,7 @@ func Run(ctx context.Context, opts Options) (<-chan Event, error) {
 
 			// Re-resolve devices now that this technique's Sightings are in,
 			// so DeviceFound/DeviceUpdated can be emitted live rather than in
-			// one batch at the very end (AC1/AC2, AD-13).
+			// one batch at the very end.
 			devices, mergeDiags = Merge(sightings)
 			for _, d := range devices {
 				recordDeviceEvent(ch, knownDevices, d, "merge")
@@ -263,7 +264,7 @@ func Run(ctx context.Context, opts Options) (<-chan Event, error) {
 
 		// Classification runs exactly once per Device, strictly after all
 		// requested enrichment has completed and strictly before Done fires
-		// (AD-9, AD-13) — never inside a discovery/* or enrich/* adapter, so
+		// — never inside a discovery/* or enrich/* adapter, so
 		// it always sees the complete, fully-merged, fully-enriched signal
 		// set. Gated into the Done wait the same way enrichment is above:
 		// recordDeviceEvent surfaces the now-populated DeviceType as a

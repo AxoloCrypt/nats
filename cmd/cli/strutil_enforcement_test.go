@@ -10,13 +10,12 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// TestNoBareBlankChecksOnFlaggedStrings is the enforcement test committed to
-// by the empty-check-lint-helper story: the == "" vs strings.TrimSpace(x) ==
-// "" bug was independently reintroduced 4 times across Epic 4 (core/ble.go
-// x2, cmd/cli/ble.go, and the BLE text writers' shared blerender.field), plus
-// a 5th pre-existing instance found during this story's own review
-// (cmd/cli/root.go's buildOptions). It was caught only at code review each
-// time, never by the initial implementation pass. This test mirrors
+// TestNoBareBlankChecksOnFlaggedStrings exists because the == "" vs
+// strings.TrimSpace(x) == "" bug was independently reintroduced 4 times
+// across the BLE work (core/ble.go x2, cmd/cli/ble.go, and the BLE text
+// writers' shared blerender.field), plus a 5th pre-existing instance in
+// cmd/cli/root.go's buildOptions. Every one was caught only at code review,
+// never by the initial implementation pass. This test mirrors
 // TestDiagnosticFieldsOnlyReadInRenderDiagnostic's AST + go/types technique
 // so the same class of bug fails a normal `go test ./...` run instead of
 // depending on a reviewer noticing it again.
@@ -28,8 +27,8 @@ import (
 // enrich/*) that can never be whitespace-only garbage, so trimming them
 // would be a no-op. Instead this enumerates the specific (type, field) and
 // (function, variable) pairs known to need strutil.IsBlank — the same
-// enumerate-don't-infer approach the Diagnostic-field test already uses for
-// AD-8 — and fails only if one of those specific sites reverts to a bare
+// enumerate-don't-infer approach the Diagnostic-field test already uses —
+// and fails only if one of those specific sites reverts to a bare
 // comparison.
 //
 // A bare-comparison scan alone has a blind spot: it can't distinguish "this
@@ -169,7 +168,7 @@ func TestNoBareBlankChecksOnFlaggedStrings(t *testing.T) {
 	}
 
 	if len(violations) != 0 {
-		t.Fatalf("bare == \"\"/!= \"\" blank-check found on a flagged string field/variable; use strutil.IsBlank instead (the == \"\" vs strings.TrimSpace(x) == \"\" bug, reintroduced 4 times in Epic 4): %v", violations)
+		t.Fatalf("bare == \"\"/!= \"\" blank-check found on a flagged string field/variable; use strutil.IsBlank instead (the == \"\" vs strings.TrimSpace(x) == \"\" bug, reintroduced 4 times already): %v", violations)
 	}
 
 	for i, fv := range flaggedVars {

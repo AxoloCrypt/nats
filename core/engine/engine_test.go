@@ -911,8 +911,8 @@ func TestRun_EmitsDeviceUpdatedWhenMACResolvesForKnownIP(t *testing.T) {
 		case EventKindDeviceFound:
 			found = append(found, evt.Device)
 		case EventKindDeviceUpdated:
-			// Story 2.4's classification stage also fires a DeviceUpdated
-			// for this device (Technique "classify", populating DeviceType)
+			// The classification stage also fires a DeviceUpdated for this
+			// device (Technique "classify", populating DeviceType)
 			// once enrichment/classification complete; this test is only
 			// about the merge-caused update from the MAC resolving.
 			if evt.Technique == "merge" {
@@ -986,8 +986,8 @@ func TestRun_NoSpuriousDeviceUpdatedFromUnrelatedSighting(t *testing.T) {
 		case EventKindDeviceFound:
 			found = append(found, evt.Device)
 		case EventKindDeviceUpdated:
-			// Story 2.4's classification stage fires an expected
-			// DeviceUpdated (Technique "classify") for every device once it
+			// The classification stage fires an expected DeviceUpdated
+			// (Technique "classify") for every device once it
 			// populates DeviceType — this test is only about merge not
 			// producing a spurious update for an unrelated sighting.
 			if evt.Technique != "classify" {
@@ -1051,7 +1051,7 @@ func TestRun_DeviceFoundPrecedesDone(t *testing.T) {
 	if !sawDone {
 		t.Fatal("expected a Done event")
 	}
-	// Story 2.4's classification stage always fires its own DeviceUpdated
+	// The classification stage always fires its own DeviceUpdated
 	// (Technique "classify", populating DeviceType, since this device has no
 	// signal and classifies to DeviceTypeUnknown, still a change from the
 	// zero value) strictly after DeviceFound and strictly before Done, so
@@ -1480,8 +1480,8 @@ func TestRun_NoDevicesDiagnosticAbsentWhenDevicesFound(t *testing.T) {
 	}
 }
 
-// deterministicEnricher is a fake Enricher (Story 2.1) with a fixed return
-// value, used to test enrichDevices/Run's wiring without depending on real
+// deterministicEnricher is a fake Enricher with a fixed return value, used
+// to test enrichDevices/Run's wiring without depending on real
 // DNS resolution or an OUI dataset.
 type deterministicEnricher struct {
 	name              string
@@ -1540,10 +1540,10 @@ func TestEnrichDevices_EnricherValueOverridesDiscoverySourcedValue(t *testing.T)
 		t.Fatalf("expected no diagnostics, got %v", diags)
 	}
 	if result[0].Hostname != "resolved.example.com" {
-		t.Fatalf("expected enricher's hostname to override discovery-sourced value (AD-10), got %q", result[0].Hostname)
+		t.Fatalf("expected enricher's hostname to override discovery-sourced value, got %q", result[0].Hostname)
 	}
 	if result[0].Vendor != "Resolved Vendor" {
-		t.Fatalf("expected enricher's vendor to override discovery-sourced value (AD-10), got %q", result[0].Vendor)
+		t.Fatalf("expected enricher's vendor to override discovery-sourced value, got %q", result[0].Vendor)
 	}
 }
 
@@ -1767,8 +1767,8 @@ func TestRun_EmitsDeviceUpdatedAfterEnrichmentBeforeDone(t *testing.T) {
 	}
 
 	var kinds []EventKind
-	// Story 2.4's classification stage fires its own DeviceUpdated
-	// (Technique "classify") right after enrichment's; track both by index
+	// The classification stage fires its own DeviceUpdated (Technique
+	// "classify") right after enrichment's; track both by index
 	// to prove the full ordering (enrich, then classify, then Done) rather
 	// than just that each occurs somewhere before Done.
 	enrichIdx, classifyIdx, doneIdx := -1, -1, -1
@@ -1935,7 +1935,7 @@ func TestRun_BoundsEnrichmentWithEnrichTimeout(t *testing.T) {
 }
 
 // ipVendorEnricher assigns a Vendor keyed by the Device's IP, simulating
-// enrich/oui (Story 2.1) resolving a different vendor per device, so
+// enrich/oui resolving a different vendor per device, so
 // TestRun_ClassifiesEachDeviceExactlyOnceAfterEnrichmentBeforeDone can prove
 // classification sees each device's own enriched signal rather than a
 // shared fixed value.
@@ -1984,8 +1984,9 @@ func TestRun_ClassifiesEachDeviceExactlyOnceAfterEnrichmentBeforeDone(t *testing
 			{IP: "192.168.1.11", MAC: "aa:bb:cc:dd:ee:02", Technique: "arp"},
 		},
 	})
-	// If classification ran before enrichment (violating AD-9's ordering),
-	// neither device would have a Vendor yet and both would classify as
+	// If classification ran before enrichment (violating the required
+	// ordering), neither device would have a Vendor yet and both would
+	// classify as
 	// "unknown" regardless of this enricher.
 	RegisterEnricher(&ipVendorEnricher{
 		name: "vendor-by-ip",
@@ -2034,8 +2035,8 @@ func TestRun_ClassifiesEachDeviceExactlyOnceAfterEnrichmentBeforeDone(t *testing
 	}
 }
 
-// deviceTypeSettingEnricher simulates an enrich/* adapter that (incorrectly,
-// in violation of AD-9) tries to set DeviceType itself. A discovery/*
+// deviceTypeSettingEnricher simulates an enrich/* adapter that incorrectly
+// tries to set DeviceType itself, which only Classify may do. A discovery/*
 // adapter has no equivalent way to attempt this at all: Sighting has no
 // DeviceType field, only the post-merge Device does.
 type deviceTypeSettingEnricher struct {

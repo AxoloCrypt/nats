@@ -3,11 +3,11 @@
 // placeholder and sanitization logic lives in exactly one place rather than
 // being restated — and drifting — in each of them.
 //
-// report/ble/json deliberately does not use this package: AD-11's
+// report/ble/json deliberately does not use this package: the
 // explicit-placeholder guarantee is satisfied there by the key always being
-// present in the object (no omitempty), and Story 4.7's Task 3 explicitly
-// chose to serialize an absent Name as "" rather than substituting a
-// human-facing placeholder into machine-readable output.
+// present in the object (no omitempty), and an absent Name is serialized as
+// "" rather than having a human-facing placeholder substituted into
+// machine-readable output.
 package blerender
 
 import (
@@ -16,8 +16,8 @@ import (
 	"nats/report/internal/render"
 )
 
-// Placeholder is the explicit stand-in AD-11 requires for any field that is
-// absent for a given device. It matches ble.DeviceTypeUnknown's value, and
+// Placeholder is the explicit stand-in rendered for any field that is absent
+// for a given device. It matches ble.DeviceTypeUnknown's value, and
 // the literal "unknown" that core/ble.DeriveVendor already resolves to, so a
 // missing field reads identically no matter which field it was.
 const Placeholder = "unknown"
@@ -30,17 +30,17 @@ const Placeholder = "unknown"
 // broadcasts directly today — Vendor comes from the static companyIDVendors
 // table and DistanceEstimate from FormatDistance — but that is a property of
 // the current BLEScanner implementation, not a guarantee of the type. A
-// second scanner (spine AD-3's Android bridge) could widen any of these
-// sources without touching this package, so sanitizing is done uniformly at
-// the writer boundary rather than selected per field based on today's
-// provenance.
+// second scanner (such as the planned Android bridge) could widen any of
+// these sources without touching this package, so sanitizing is done
+// uniformly at the writer boundary rather than selected per field based on
+// today's provenance.
 //
 // Blank-but-non-empty values are treated as absent. A value of " " (or a
 // name broadcast as "\n", which sanitizes to " ") would otherwise slip past
 // an == "" check and render as an empty cell, making "no name broadcast"
 // indistinguishable from "name is one space" — exactly the silently-blank
-// column AD-11 forbids. This matches how core/ble itself already tests for
-// absence (skipDiagnostic's strutil.IsBlank check).
+// column this package exists to prevent. This matches how core/ble itself
+// already tests for absence (skipDiagnostic's strutil.IsBlank check).
 func Fields(d ble.BLEDeviceProfile) (address, name, vendor, deviceType, distance string) {
 	return field(d.Address),
 		field(d.Name),

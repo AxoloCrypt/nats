@@ -73,7 +73,7 @@ func Merge(sightings []Sighting) ([]Device, []Diagnostic) {
 	noMACIPsDone := make(map[string]bool)
 	for _, s := range noMACSightings {
 		if conflictedIPs[s.IP] {
-			// AD-4's IP-match clause only applies when no Sighting in the scan
+			// The IP-match clause only applies when no Sighting in the scan
 			// asserts a conflicting MAC for that IP. A conflict here means the
 			// IP-match rule doesn't apply to *any* pair sharing this IP, so
 			// no-MAC sightings must not be deduped against each other either.
@@ -105,10 +105,10 @@ func Merge(sightings []Sighting) ([]Device, []Diagnostic) {
 }
 
 // applyServiceData copies a discovery-sourced Hostname/Vendor from a group of
-// Sightings into dev, so that enrichment (AD-10) has a discovery-sourced
-// value to potentially override. It also carries each Sighting's ServiceData
-// through onto dev.ServiceData, key by key, since AD-4's merge rule never
-// required preserving it and Story 2.4's classifier is the first consumer.
+// Sightings into dev, so that enrichment has a discovery-sourced value to
+// potentially override. It also carries each Sighting's ServiceData through
+// onto dev.ServiceData, key by key, since identity merging alone doesn't
+// require preserving it and Classify is the first consumer.
 // The first non-empty value found wins, for both the named fields and each
 // ServiceData key; a Device's own value is never overwritten with an empty
 // one. The "hostname"/"vendor" keys are excluded from the generic

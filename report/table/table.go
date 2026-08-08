@@ -1,6 +1,6 @@
-// Package table renders a Report as the default plain-text summary table
-// (AD-7): IP, MAC, Hostname, Vendor, Open Ports, Device Type. It consumes
-// only the engine's final Report struct, never core/engine's live state.
+// Package table renders a Report as the default plain-text summary table:
+// IP, MAC, Hostname, Vendor, Open Ports, Device Type. It consumes only the
+// engine's final Report struct, never core/engine's live state.
 package table
 
 import (
@@ -20,7 +20,7 @@ func init() {
 type Writer struct{}
 
 // Name implements engine.Writer, registering this writer under the "table"
-// format name — the default format carried over from Story 1.7.
+// format name — the default output format.
 func (Writer) Name() string {
 	return "table"
 }
@@ -31,9 +31,9 @@ func (Writer) Write(r engine.Report) ([]byte, error) {
 
 	fmt.Fprintln(tw, "IP\tMAC\tHOSTNAME\tVENDOR\tOPEN PORTS\tDEVICE TYPE")
 	for _, d := range r.Devices {
-		// DeviceType's zero value renders as "unknown" per FR-7 — Hostname,
-		// Vendor, and OpenPorts have no such taxonomy default and render as
-		// their true empty/zero value until Epic 2 adds enrichment.
+		// DeviceType's zero value renders as "unknown" — Hostname, Vendor,
+		// and OpenPorts have no such taxonomy default and render as their true
+		// empty/zero value when no enricher has filled them in.
 		deviceType := d.DeviceType
 		if deviceType == "" {
 			deviceType = engine.DeviceTypeUnknown

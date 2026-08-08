@@ -50,9 +50,9 @@ func buildOptions(cmd *cobra.Command) engine.Options {
 	}
 	// --enrich opts in to additional enrichers (tcpsyn, udpscan, banner) on
 	// top of the default set (dns, oui, tcpconnect) — unlike --techniques,
-	// it never replaces the defaults (FR-6: these three must never run
-	// unless explicitly named, but the always-on default set doesn't stop
-	// running just because deeper enrichment was also requested).
+	// it never replaces the defaults. The opt-in three must never run unless
+	// explicitly named, but the always-on default set doesn't stop running
+	// just because deeper enrichment was also requested.
 	if enrich, _ := cmd.Flags().GetString("enrich"); enrich != "" {
 		combined := strings.Join(opts.EnrichOptions, ",") + "," + enrich
 		opts.EnrichOptions = splitTechniques(combined)
@@ -122,14 +122,14 @@ var reportWriter io.Writer = os.Stdout
 
 // renderDiagnostic is the single function through which every Diagnostic —
 // regardless of whether it originated in core/engine or cmd/cli — is
-// printed (AD-8). Nothing else in this package prints a Diagnostic's
+// printed. Nothing else in this package prints a Diagnostic's
 // Severity/Message/Reason directly.
 //
 // It returns whether d was error-severity, so callers that need to track a
 // run's overall exit status (runScan, via evt.Diagnostics) can do so without
 // reading a Diagnostic's Severity field themselves — renderDiagnostic must
-// stay the only reader of engine.Diagnostic's fields, per the AD-8
-// enforcement test (diagnostic_enforcement_test.go).
+// stay the only reader of engine.Diagnostic's fields, as
+// diagnostic_enforcement_test.go enforces.
 func renderDiagnostic(w io.Writer, d engine.Diagnostic) bool {
 	severity := d.Severity
 	if severity == "" {
@@ -214,8 +214,8 @@ func runScan(w io.Writer, events <-chan engine.Event, writer engine.Writer, outp
 				sawError = true
 			}
 			// File persistence wraps the same Writer output already written to
-			// stdout above (AD-7) — it never blocks or replaces the stdout
-			// write, it's strictly additive (FR-10).
+			// stdout above — it never blocks or replaces the stdout write, it's
+			// strictly additive.
 			if outputFile != "" {
 				if err := writeReportFile(outputFile, out, 0o644); err != nil {
 					renderDiagnostic(diagnosticWriter, engine.Diagnostic{

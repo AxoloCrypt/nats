@@ -35,8 +35,8 @@ var stopScanAdapter = func() error {
 
 // Probe empirically attempts to enable the adapter and reports ok=false
 // with a human-readable reason on failure. This is an OS Bluetooth-
-// permission check only (NL-AD-4) — it never checks os.Geteuid() or any
-// privilege/root signal, categorically different from the base spine's
+// permission check only — it never checks os.Geteuid() or any
+// privilege/root signal, categorically different from the LAN vertical's
 // RequiresPrivilege()/root-probing pattern.
 func (s *scanner) Probe() (ok bool, reason string) {
 	if err := enableAdapter(); err != nil {
@@ -48,8 +48,9 @@ func (s *scanner) Probe() (ok bool, reason string) {
 // scanStartGrace bounds how long Scan waits to learn whether the scan
 // actually started before handing the channel back to core/ble.Run.
 //
-// It exists because the permission and availability gaps NL-FR-13 is about
-// do not surface from Probe(). In the pinned tinygo.org/x/bluetooth v0.15.0,
+// It exists because the permission and availability gaps that must be
+// reported to the user do not surface from Probe(). In the pinned
+// tinygo.org/x/bluetooth v0.15.0,
 // Adapter.Enable() only opens the system D-Bus and reads
 // org.bluez.Adapter1.Address on Linux — which succeeds when BlueZ is present
 // but Bluetooth is powered off — and on Windows is nothing but
@@ -59,8 +60,8 @@ func (s *scanner) Probe() (ok bool, reason string) {
 // almost immediately. Waiting briefly for that failure is what lets it reach
 // core/ble.Run's err != nil branch and be named in a warning Diagnostic.
 // Without the wait the error was discarded and the user saw a zero-device
-// "BLE scan complete." that is indistinguishable from an empty room —
-// exactly the silent drop NL-FR-13 forbids.
+// "BLE scan complete." that is indistinguishable from an empty room — a
+// skipped scan must never be silently dropped from the output.
 //
 // This is a bound, not a guarantee: a rejection slower than the grace is
 // still missed and still degrades to a silent empty scan. An exact fix needs
@@ -71,7 +72,7 @@ const scanStartGrace = 300 * time.Millisecond
 // Scan wraps tinygo's scan-result callback API into a <-chan
 // ble.Advertisement, stopping the scan once window elapses or ctx is
 // cancelled. It never calls Connect or any GATT method — only the
-// scan/advertisement path is observed (NL-AD-2).
+// scan/advertisement path is observed, so scanning stays strictly passive.
 //
 // A scan that fails to start is reported as an error rather than as an empty
 // channel, so core/ble.Run can name it (see scanStartGrace). The cost is that
@@ -141,9 +142,8 @@ func (s *scanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Ad
 	return ch, nil
 }
 
-// Appearance encoding (Story 4.4 Task 2, the one real design decision this
-// story makes): a raw 16-bit GAP Appearance value would be formatted here
-// as a 4-digit lowercase hex string with no "0x" prefix (e.g. "03c0"),
+// Appearance encoding: a raw 16-bit GAP Appearance value would be formatted
+// here as a 4-digit lowercase hex string with no "0x" prefix (e.g. "03c0"),
 // matching what core/ble.appearanceCategory (the sole read site) expects.
 // It is never actually written below: the pinned tinygo.org/x/bluetooth
 // v0.15.0's AdvertisementPayload interface exposes LocalName/ServiceUUIDs/
@@ -151,7 +151,7 @@ func (s *scanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Ad
 // Linux (BlueZ D-Bus) ScanResult mapping doesn't surface the "Appearance"
 // device property either — the raw value simply isn't obtainable from a
 // central-role scan with this dependency today. Advertisement.Appearance
-// is therefore left at its documented zero value ("" — spine AD-5 marks it
+// is therefore left at its documented zero value ("" — the field is
 // optional); core/ble.ClassifyDeviceType degrades to its next signal
 // (ServiceUUIDs, then Name) whenever Appearance doesn't decode, so this
 // gap doesn't block classification. If a future tinygo release (or
@@ -177,7 +177,7 @@ func toAdvertisement(result bluetooth.ScanResult) ble.Advertisement {
 	// is randomized per range. Taking mfg[0] therefore resolved the same
 	// physical device to a different Vendor on different callbacks within a
 	// single scan. The remaining elements are dropped; carrying all of them
-	// would need a shape change to Advertisement (spine AD-5 pins it).
+	// would need a shape change to Advertisement, whose layout is pinned.
 	if mfg := result.ManufacturerData(); len(mfg) > 0 {
 		chosen := mfg[0]
 		for _, el := range mfg[1:] {

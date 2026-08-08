@@ -1,6 +1,6 @@
 // Package render holds formatting helpers shared by report/table,
-// report/markdown, and report/plain, so the four Writer implementations
-// (AD-7) don't duplicate the same field-rendering logic.
+// report/markdown, and report/plain, so the Writer implementations don't
+// duplicate the same field-rendering logic.
 package render
 
 import (

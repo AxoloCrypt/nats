@@ -1,11 +1,11 @@
-// Package oui implements engine.Enricher via MAC OUI vendor lookup, the
-// other of the two default enrichers (FR-5, AD-12).
+// Package oui implements engine.Enricher via MAC OUI vendor lookup, one of
+// the always-on default enrichers.
 //
 // The vendor dataset is github.com/gopacket/gopacket/macs.ValidMACPrefixMap,
 // an embedded, regenerated-from-IEEE table already shipped by gopacket —
-// which this module already depends on for discovery/arp's packet capture
-// (AD-1's Stack table). Reusing it avoids pulling in a second, separately
-// maintained OUI library or dataset for the same lookup.
+// which this module already depends on for discovery/arp's packet capture.
+// Reusing it avoids pulling in a second, separately maintained OUI library
+// or dataset for the same lookup.
 package oui
 
 import (
@@ -34,9 +34,9 @@ func (e *enricher) RequiresPrivilege() bool {
 
 // ProbePrivilege implements engine.PrivilegeProber. An in-memory table
 // lookup never needs elevated privilege, but it is still implemented as a
-// live probe (AD-5) rather than a hardcoded false, for consistency with
-// every other adapter — including Story 2.3's opt-in enrichers, which do
-// need a real check.
+// live probe rather than a hardcoded false, for consistency with every other
+// adapter — including the opt-in raw-socket enrichers, which do need a real
+// check.
 func (e *enricher) ProbePrivilege() (bool, error) {
 	return probePrivilege()
 }
@@ -57,8 +57,8 @@ var vendorLookup = func(mac net.HardwareAddr) (string, bool) {
 
 func (e *enricher) Enrich(ctx context.Context, device engine.Device) (engine.Device, error) {
 	if device.MAC == "" {
-		// A device merged purely by IP (Story 1.4's IP-match rule) has no
-		// MAC to resolve a vendor from — expected, not an error.
+		// A device merged purely by IP (Merge's IP-match rule) has no MAC to
+		// resolve a vendor from — expected, not an error.
 		return device, nil
 	}
 

@@ -38,9 +38,9 @@ func TestEstimateDistance_NilTXPowerWidensUncertainty(t *testing.T) {
 
 	// Compare as a proportion of each call's own meters, since a nil
 	// TXPower also changes the assumed measuredPower and therefore the
-	// meters figure itself — what AC #2 actually requires is a
-	// meaningfully wider proportional *band*, not a larger absolute
-	// uncertainty number that just follows from a larger distance.
+	// meters figure itself — what matters is a meaningfully wider
+	// proportional *band*, not a larger absolute uncertainty number that
+	// just follows from a larger distance.
 	proportionWithTXPower := withTXPower / metersWithTXPower
 	proportionWithoutTXPower := withoutTXPower / metersNoTXPower
 	if proportionWithoutTXPower <= proportionWithTXPower {
@@ -84,8 +84,8 @@ func TestFormatDistance_MatchesExpectedShape(t *testing.T) {
 func TestFormatDistance_CloseRangeNeverRendersAsZero(t *testing.T) {
 	// Regression: at one decimal place, small-but-nonzero meters/uncertainty
 	// (e.g. a device a few cm from the scanner) rounded down to a displayed
-	// "0.0", exactly the zero-uncertainty failure mode PRD SM-C1 warns
-	// against even though the underlying float was never 0.
+	// "0.0", exactly the zero-uncertainty reading the format exists to
+	// avoid, even though the underlying float was never 0.
 	got := FormatDistance(0.0355, 0.0142)
 	if !distancePattern.MatchString(got) {
 		t.Fatalf("FormatDistance(0.0355, 0.0142) = %q, expected to match %q", got, distancePattern.String())

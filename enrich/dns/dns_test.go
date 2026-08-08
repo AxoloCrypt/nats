@@ -52,7 +52,7 @@ func TestEnrich_OverridesDiscoverySourcedHostname(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if device.Hostname != "resolved.lan" {
-		t.Fatalf("expected enricher's hostname to override discovery-sourced value (AD-10), got %q", device.Hostname)
+		t.Fatalf("expected enricher's hostname to override discovery-sourced value, got %q", device.Hostname)
 	}
 }
 

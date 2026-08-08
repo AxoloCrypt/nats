@@ -24,9 +24,9 @@ func TestBLEDoesNotImportCmdOrEngine(t *testing.T) {
 		if line == "nats/core/engine" {
 			t.Fatalf("core/ble must not import core/engine, but depends on: %s", line)
 		}
-		// The third root NL-AD-1 forbids. core/wifimonitor does not exist yet
-		// (Epic 5), so this check is inert today — but it is checked here
-		// precisely so the boundary is already guarded when that package
+		// The third root the import-boundary rule forbids. core/wifimonitor
+		// does not exist yet, so this check is inert today — but it is checked
+		// here precisely so the boundary is already guarded when that package
 		// lands, rather than relying on someone remembering to add it then.
 		if line == "nats/core/wifimonitor" || strings.HasPrefix(line, "nats/core/wifimonitor/") {
 			t.Fatalf("core/ble must not import core/wifimonitor, but depends on: %s", line)

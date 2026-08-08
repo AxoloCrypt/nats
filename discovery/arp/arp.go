@@ -55,8 +55,8 @@ var ifaceAddrs = func(iface net.Interface) ([]net.Addr, error) {
 //
 // Requiring an IPv4 address is a heuristic, not a guarantee: it favors a
 // real LAN-facing NIC over most virtual interfaces (docker0, veth*,
-// tun/tap), but RequiresPrivilege() takes no target subnet (AD-6), so it
-// can still end up probing a different interface than the one Run()
+// tun/tap), but RequiresPrivilege() takes no target subnet, so it can
+// still end up probing a different interface than the one Run()
 // resolves for a given scan's target. It answers "can this process open a
 // capture handle at all", which is what determines skip-vs-run.
 var probePrivilege = func() (bool, error) {
@@ -130,7 +130,8 @@ var openPcap = func(device string, snaplen int32, promisc bool, timeout time.Dur
 var resolveInterface = subnetutil.ResolveInterface
 
 // EnumerateAddresses implements engine.AddressEnumerator, letting core/engine
-// report how many addresses this sweep will cover (FR-10 pending progress).
+// report how many addresses this sweep will cover, so a driving adapter can
+// show "still pending" progress.
 func (t *technique) EnumerateAddresses(target string) ([]string, error) {
 	_, ipnet, err := net.ParseCIDR(target)
 	if err != nil {

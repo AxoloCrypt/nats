@@ -38,8 +38,9 @@ var queryFn = mdns.QueryContext
 var roundInterval = 2 * time.Second
 
 // quiescenceWindow is how long Run waits without a new sighting before
-// closing its own channel (AD-13). It is reset on every round that forwards
-// at least one sighting.
+// closing its own channel — this listen-based technique self-terminates on
+// quiescence rather than on a fixed deadline. It is reset on every round
+// that forwards at least one sighting.
 var quiescenceWindow = 10 * time.Second
 
 func (t *technique) RequiresPrivilege() bool {

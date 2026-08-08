@@ -139,8 +139,8 @@ func TestBLECommand_PrintsDiagnosticAndReport(t *testing.T) {
 			t.Fatalf("expected the reason to be rendered, got: %q", diagnosticBuf.String())
 		}
 		// A skipped scan still resolves and renders the default writer
-		// against an empty Report — a header-only table (AC #1), not a
-		// stub completion string.
+		// against an empty Report — a header-only table, not a stub
+		// completion string.
 		if !bytes.Contains(reportBuf.Bytes(), []byte("ADDRESS")) {
 			t.Fatalf("expected the header-only default table report, got: %q", reportBuf.String())
 		}
@@ -191,8 +191,9 @@ func TestBLECommand_WindowFlag_RejectsInvalidDuration(t *testing.T) {
 	}
 }
 
-// TestBLECommand_WindowFlagReachesBLERun is the end-to-end proof of AC #2's
-// "adjustable via flag": it drives the real bleCmd through the real flag
+// TestBLECommand_WindowFlagReachesBLERun is the end-to-end proof that the
+// listening window really is adjustable via flag: it drives the real bleCmd
+// through the real flag
 // registration and asserts the value lands in the ble.Options handed to
 // ble.Run. Without it, re-registering "window" as a String flag, or
 // renaming it in init() while buildBLEOptions still looks up "window",
@@ -325,8 +326,8 @@ func TestBLECommand_RejectsNonPositiveWindow(t *testing.T) {
 	}
 }
 
-// TestBLECommand_HelpText_DocumentsStatelessnessAndWindowFlag guards Task 3
-// (AC #1, #2): nats ble --help must tell the user, in its own words, that
+// TestBLECommand_HelpText_DocumentsStatelessnessAndWindowFlag guards the
+// help text: nats ble --help must tell the user, in its own words, that
 // nothing is persisted/correlated across runs and what --window defaults to.
 func TestBLECommand_HelpText_DocumentsStatelessnessAndWindowFlag(t *testing.T) {
 	long := bleCmd.Long
@@ -356,9 +357,8 @@ func TestBLECommand_HelpText_DocumentsStatelessnessAndWindowFlag(t *testing.T) {
 // registry, so the degradation tests below drive the actual
 // bleCmd.RunE -> ble.Run -> BLEScanner path end to end rather than stubbing
 // bleRun out. Stubbing bleRun would prove only that cmd/cli prints whatever
-// it is handed; the point of Story 4.6's AC #1 is that the two halves compose
-// — the scanner's refusal reaches the user as a warning and the command still
-// exits cleanly.
+// it is handed; the point is that the two halves compose — the scanner's
+// refusal reaches the user as a warning and the command still exits cleanly.
 type probeFailScanner struct {
 	reason string
 }
@@ -411,8 +411,8 @@ func diagnosticSeverities(rendered string) []string {
 }
 
 // runWithTimeout runs fn on its own goroutine and fails the test if it hasn't
-// returned in time. AC #1's "completes cleanly rather than crashing or
-// hanging" is otherwise untestable: a RunE that blocks forever would simply
+// returned in time. "Completes cleanly rather than crashing or hanging" is
+// otherwise untestable: a RunE that blocks forever would simply
 // stall the suite until Go's package-level 10-minute panic, with nothing
 // pointing at this scenario.
 func runWithTimeout(t *testing.T, timeout time.Duration, fn func() error) error {
@@ -431,8 +431,8 @@ func runWithTimeout(t *testing.T, timeout time.Duration, fn func() error) error 
 }
 
 // TestBLECommand_PermissionGap_CompletesCleanly is the end-to-end proof of
-// AC #1: with the OS refusing Bluetooth access, nats ble prints a warning
-// naming what was skipped and why, and still exits normally.
+// graceful degradation: with the OS refusing Bluetooth access, nats ble
+// prints a warning naming what was skipped and why, and still exits normally.
 //
 // The nil-error assertion pins ble to scan's RunE convention of always
 // returning nil (root.go's scanCmd.RunE does the same) — process exit code
@@ -481,8 +481,8 @@ func TestBLECommand_PermissionGap_CompletesCleanly(t *testing.T) {
 					t.Fatalf("a permission gap must never be reported at error severity, got severities %v in: %q", severities, diagnostics)
 				}
 				// A skipped scan still resolves and renders the default
-				// writer against an empty Report — a header-only table
-				// (AC #1), proving the command completed normally.
+				// writer against an empty Report — a header-only table,
+				// proving the command completed normally.
 				if !strings.Contains(reportBuf.String(), "ADDRESS") {
 					t.Fatalf("expected the command to complete normally and render the header-only report, got: %q", reportBuf.String())
 				}
@@ -496,7 +496,8 @@ func TestBLECommand_PermissionGap_CompletesCleanly(t *testing.T) {
 }
 
 // TestBLECommand_ZeroDevicesFound_IsNotReportedAsFailure is the cmd/cli half
-// of Task 2: a scan that ran fine and simply saw nothing nearby prints no
+// of the zero-devices rule: a scan that ran fine and simply saw nothing
+// nearby prints no
 // diagnostic at all — no "no devices discovered" error borrowed from the LAN
 // vertical, nothing to suggest the user's Bluetooth is broken.
 //
@@ -526,8 +527,8 @@ func TestBLECommand_ZeroDevicesFound_IsNotReportedAsFailure(t *testing.T) {
 		if diagnosticBuf.Len() != 0 {
 			t.Fatalf("an ordinary empty BLE scan must print no diagnostic at all, got: %q", diagnosticBuf.String())
 		}
-		// Zero devices still renders the default writer's header-only table
-		// (AC #1) — proof the command completed normally.
+		// Zero devices still renders the default writer's header-only table —
+		// proof the command completed normally.
 		if !strings.Contains(reportBuf.String(), "ADDRESS") {
 			t.Fatalf("expected the command to complete normally and render the header-only report, got: %q", reportBuf.String())
 		}
@@ -558,7 +559,7 @@ func bleDoneEventWithOneDevice() ble.Event {
 }
 
 // TestBLECommand_FormatSelection_EachFormatProducesExactlyOneWritersOutput is
-// Task 6/7's proof of AC #1's "exactly one writer's output is produced":
+// the proof that exactly one writer's output is produced per run:
 // mirrors TestScanCommand_FormatSelection_EachFormatProducesExactlyOneWritersOutput
 // for the BLE vertical.
 func TestBLECommand_FormatSelection_EachFormatProducesExactlyOneWritersOutput(t *testing.T) {
@@ -722,8 +723,8 @@ func TestBLECommand_NoOutputFileFlag_StdoutOnlyBehaviorUnchanged(t *testing.T) {
 }
 
 // TestBLECommand_PermissionGapDiagnostic_RendersThroughSameDiagnosticPath is
-// Task 7's regression test locking in Task 6's consistency requirement (AC
-// #2): Story 4.6's permission-gap warning must print through the exact same
+// the regression test locking in diagnostic-rendering consistency: the
+// permission-gap warning must print through the exact same
 // renderBLEDiagnostic -> renderDiagnostic path as every other BLE
 // diagnostic, byte-for-byte identical in shape to a LAN diagnostic rendered
 // through renderDiagnostic directly.
@@ -753,7 +754,7 @@ func TestBLECommand_PermissionGapDiagnostic_RendersThroughSameDiagnosticPath(t *
 }
 
 // TestBLECommand_AlwaysAnnouncesCompletionOnStderr covers the completion
-// signal that replaced Story 4.1's "BLE scan complete." stub. The stub was
+// signal that replaced an earlier "BLE scan complete." stub. The stub was
 // removed because it printed to the report writer, where it corrupted
 // --format json; the fix is to move the signal to stderr, not to drop it.
 //

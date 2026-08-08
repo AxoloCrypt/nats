@@ -61,9 +61,9 @@ type DeviceProfile struct {
 	Vendor     string     `json:"vendor,omitempty"`
 	DeviceType string     `json:"deviceType,omitempty"`
 	OpenPorts  []OpenPort `json:"openPorts,omitempty"`
-	// ServiceData carries the mDNS/SSDP service-type strings (Story 1.3's
-	// Sighting.ServiceData) through merge (AD-4 didn't require preserving it)
-	// so core/engine's classifier (Story 2.4) has them available as a
+	// ServiceData carries the mDNS/SSDP service-type strings from
+	// Sighting.ServiceData through merge, which identity merging alone
+	// doesn't require, so core/engine's classifier has them available as a
 	// signal, keyed the same way the contributing Sightings keyed them
 	// (e.g. mdns's "hostname"/"name"/"info", ssdp's "type"/"usn"/"server"/
 	// "location").
@@ -72,8 +72,8 @@ type DeviceProfile struct {
 
 type Device = DeviceProfile
 
-// Upsert is the only mutation path for a Device's OpenPorts list (AD-11):
-// enrichers never append to the slice directly. A later write for an
+// Upsert is the only mutation path for a Device's OpenPorts list: enrichers
+// never append to the slice directly. A later write for an
 // already-known (Port, Protocol) replaces the existing entry in place (e.g.
 // adding a Banner) rather than appending a duplicate.
 func (d *DeviceProfile) Upsert(p OpenPort) {

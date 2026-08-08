@@ -1,6 +1,6 @@
-// Package json renders a BLE Report as machine-readable JSON (spine AD-11),
-// mirroring report/json's structure. It consumes only core/ble's final
-// Report struct, never core/ble's live scan state.
+// Package json renders a BLE Report as machine-readable JSON, mirroring
+// report/json's structure. It consumes only core/ble's final Report struct,
+// never core/ble's live scan state.
 package json
 
 import (

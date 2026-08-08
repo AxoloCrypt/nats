@@ -133,7 +133,7 @@ func TestEnrich_NoBannerWithinTimeoutSkipsPort(t *testing.T) {
 // TestEnrich_AgainstLocalListener exercises the real dial path (no fake
 // swapped in) against an actual local TCP listener that writes a banner
 // immediately upon accept, mirroring enrich/tcpconnect's
-// TestEnrich_AgainstLocalListener (Story 2.2).
+// TestEnrich_AgainstLocalListener.
 func TestEnrich_AgainstLocalListener(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -195,7 +195,7 @@ func TestEnrich_BannerFoundUpsertsExistingEntryPreservingFields(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result.OpenPorts) != 1 {
-		t.Fatalf("expected the existing entry to be updated, not duplicated (AD-11), got %+v", result.OpenPorts)
+		t.Fatalf("expected the existing entry to be updated, not duplicated, got %+v", result.OpenPorts)
 	}
 	got := result.OpenPorts[0]
 	if got.Port != 22 || got.Protocol != "tcp" || got.State != "open" {

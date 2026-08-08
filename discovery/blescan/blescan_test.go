@@ -123,8 +123,8 @@ func TestScan_DrainsAdvertisementsAndClosesAfterWindow(t *testing.T) {
 // "scanning denied by policy" are reported by Adapter.Scan, not by Enable().
 // The error used to be discarded into scanDone, so the user got a
 // zero-device "BLE scan complete." that looked exactly like an empty room.
-// Scan must hand it back so core/ble.Run can name it in a warning
-// (NL-FR-13: a skipped scan is never silently dropped from output).
+// Scan must hand it back so core/ble.Run can name it in a warning: a
+// skipped scan is never silently dropped from the output.
 func TestScan_ReportsAStartFailureInsteadOfAnEmptyScan(t *testing.T) {
 	origScan := scanAdapter
 	origStop := stopScanAdapter

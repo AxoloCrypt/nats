@@ -1,13 +1,12 @@
 # GoReleaser configuration (schema v2, https://goreleaser.com).
 #
-# AD-14 (architecture spine) fixes the release platform matrix at exactly
-# four targets: linux/amd64, linux/arm64, linux/arm (Android/Termux),
-# windows/amd64. Removing (or silently adding)
-# a target here is a spine-level decision requiring an explicit
-# ARCHITECTURE-SPINE.md#AD-14 update — it is NOT a routine release-day
-# tweak. `goreleaser_config_test.go` at the repo root fails the build if
-# this list ever drifts from that fixed set, so an accidental removal
-# breaks CI instead of silently shipping fewer platforms.
+# The release platform matrix is fixed at exactly four targets:
+# linux/amd64, linux/arm64, linux/arm (Android/Termux), windows/amd64.
+# Removing (or silently adding) a target here changes which platforms the
+# project supports — treat it as a deliberate project-level decision, not a
+# routine release-day tweak. `goreleaser_config_test.go` at the repo root
+# fails the build if this list ever drifts from that fixed set, so an
+# accidental removal breaks CI instead of silently shipping fewer platforms.
 #
 # gopacket/pcap (used by discovery/arp and the tcpsyn/udpscan enrichers)
 # is a cgo binding against libpcap/Npcap, so every build below
@@ -17,14 +16,14 @@
 # dependencies" section for what end users need installed to actually run
 # the privileged techniques/enrichers.
 #
-# 2026-08-07: darwin/amd64 and darwin/arm64 were removed from this matrix by
-# an explicit AD-14 spine update (Sprint Change Proposal "Drop macOS as a
-# Supported Platform") — macOS is no longer a supported platform for any
-# feature. Driver: BLE scanning reaches macOS Bluetooth only via
+# 2026-08-07: darwin/amd64 and darwin/arm64 were deliberately dropped from
+# this matrix — macOS is no longer a supported platform for any feature.
+# Driver: BLE scanning reaches macOS Bluetooth only via
 # github.com/tinygo-org/cbgo, a cgo binding against the Objective-C
-# CoreBluetooth framework, contradicting the BLE spine's no-new-cgo rule
-# (AD-2). Note this does NOT make the build cgo-free — gopacket/pcap above
-# still requires CGO_ENABLED=1 on every remaining target.
+# CoreBluetooth framework, which contradicts the rule that the BLE vertical
+# introduces no new cgo dependency. Note this does NOT make the build
+# cgo-free — gopacket/pcap above still requires CGO_ENABLED=1 on every
+# remaining target.
 version: 2
 
 project_name: nats

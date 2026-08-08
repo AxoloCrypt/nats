@@ -2,7 +2,7 @@ package engine
 
 import "strings"
 
-// v1 taxonomy Device Types (FR-7). DeviceTypeUnknown is what Classify
+// v1 taxonomy Device Types. DeviceTypeUnknown is what Classify
 // returns when the combined signal set is insufficient to pick a more
 // specific type — there is no accuracy bar for v1.
 const (
@@ -29,10 +29,10 @@ type classifyRule struct {
 
 // serviceDataRules maps a DeviceType to substrings looked for
 // (case-insensitively) across a Device's merged mDNS/SSDP ServiceData
-// values (Story 1.3's service-type/name/info/usn/server fields, carried
-// through merge by Story 2.4). Checked in this fixed order — the first
-// entry with a match wins — so priority doesn't depend on Go's random map
-// iteration order.
+// values (the service-type/name/info/usn/server fields discovery/mdns and
+// discovery/ssdp record, carried through merge). Checked in this fixed
+// order — the first entry with a match wins — so priority doesn't depend on
+// Go's random map iteration order.
 var serviceDataRules = []classifyRule{
 	{DeviceTypeRouter, []string{"internetgatewaydevice", "wanconnectiondevice"}},
 	{DeviceTypePrinter, []string{"_ipp", "_pdl-datastream", "_printer"}},
@@ -41,9 +41,9 @@ var serviceDataRules = []classifyRule{
 }
 
 // bannerRules maps a DeviceType to substrings looked for
-// (case-insensitively) in a Device's open ports' Banner text (enrich/banner,
-// Story 2.3 — a raw first-read from an already-open TCP port, populated only
-// for protocols that speak first, e.g. SSH/FTP/Telnet). Checked in this
+// (case-insensitively) in a Device's open ports' Banner text (enrich/banner
+// — a raw first-read from an already-open TCP port, populated only for
+// protocols that speak first, e.g. SSH/FTP/Telnet). Checked in this
 // fixed order for the same reason as serviceDataRules.
 var bannerRules = []classifyRule{
 	{DeviceTypeRouter, []string{"dropbear", "busybox", "romsshell", "mikrotik", "routeros"}},
@@ -53,10 +53,9 @@ var bannerRules = []classifyRule{
 }
 
 // vendorRules maps a DeviceType to substrings looked for
-// (case-insensitively) in the Vendor field (enrich/oui's MAC OUI lookup,
-// Story 2.1) once no port, banner, or service-data signal has already
-// decided a type. Checked in this fixed order for the same reason as
-// serviceDataRules.
+// (case-insensitively) in the Vendor field (enrich/oui's MAC OUI lookup)
+// once no port, banner, or service-data signal has already decided a type.
+// Checked in this fixed order for the same reason as serviceDataRules.
 var vendorRules = []classifyRule{
 	{DeviceTypeRouter, []string{"cisco", "netgear", "tp-link", "tplink", "d-link", "linksys", "mikrotik", "ubiquiti", "asustek", "belkin", "zyxel"}},
 	{DeviceTypePrinter, []string{"hewlett packard", "canon", "epson", "brother", "lexmark", "xerox", "kyocera", "ricoh"}},
@@ -66,11 +65,11 @@ var vendorRules = []classifyRule{
 	{DeviceTypeComputer, []string{"dell", "lenovo", "intel corporate", "microsoft corp", "gigabyte", "msi", "acer", "toshiba", "raspberry pi"}},
 }
 
-// Classify assigns a best-effort DeviceType (FR-7) to a fully-merged,
+// Classify assigns a best-effort DeviceType to a fully-merged,
 // fully-enriched Device by combining MAC vendor, open ports/banners, and
 // mDNS/SSDP service data. It is a pure function with no side effects,
 // called exactly once per Device by core/engine.Run after merge and
-// enrichment have both completed (AD-9) — never inside a discovery/* or
+// enrichment have both completed — never inside a discovery/* or
 // enrich/* adapter, so it always sees the complete signal set regardless of
 // which techniques/enrichers ran, and always overwrites any value an
 // adapter may have (incorrectly) set on DeviceType, since it never reads

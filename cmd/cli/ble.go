@@ -63,8 +63,9 @@ func resolveBLEFormat(cmd *cobra.Command) string {
 // It goes to progressWriter (stderr), never to the report writer: that is
 // what lets it coexist with a Writer's stdout bytes without corrupting them
 // — a completion line printed on stdout would make --format json output
-// unparseable, which is why Story 4.1's "BLE scan complete." stub had to go.
-// Dropping the signal entirely was the wrong half of that fix, though: with
+// unparseable, which is why an earlier "BLE scan complete." stub printed to
+// stdout had to go. Dropping the signal entirely was the wrong half of that
+// fix, though: with
 // no completion line, "nats ble --format plain" in a room with nothing
 // broadcasting writes zero bytes to stdout (plain renders no devices as no
 // output) and zero to stderr (core/ble.Run deliberately reports no
@@ -78,21 +79,21 @@ func renderBLEDone(w io.Writer, deviceCount int) {
 	fmt.Fprintf(w, "BLE scan complete. %d %s found.\n", deviceCount, deviceWord)
 }
 
-// renderBLEDiagnostic converts a core/ble.Diagnostic into the base spine's
-// engine.Diagnostic shape and reuses renderDiagnostic (AD-8), so every
-// Diagnostic — LAN or BLE — is still printed through the one function that
-// produces the "severity: message" / "  reason: ..." shape, even though
-// core/ble.Diagnostic is a distinct type from engine.Diagnostic (NL-AD-1's
+// renderBLEDiagnostic converts a core/ble.Diagnostic into the LAN vertical's
+// engine.Diagnostic shape and reuses renderDiagnostic, so every Diagnostic —
+// LAN or BLE — is still printed through the one function that produces the
+// "severity: message" / "  reason: ..." shape, even though
+// core/ble.Diagnostic is a distinct type from engine.Diagnostic (the
 // import-boundary rule forbids core/ble depending on core/engine).
 //
 // It returns whether d was error-severity — purely a passthrough of
 // renderDiagnostic's own return value, since severity is part of the
 // engine.Diagnostic shape d was just converted into, not a notion BLE
-// resolves independently (NL-AD-1: core/ble.Diagnostic has no severity logic
-// of its own). This lets runBLEScan track a run's overall exit status
-// without itself reading a ble.Diagnostic field — renderBLEDiagnostic must
-// stay the only reader of ble.Diagnostic's fields outside this conversion,
-// per the AD-8 enforcement test (diagnostic_enforcement_test.go).
+// resolves independently — core/ble.Diagnostic has no severity logic of its
+// own. This lets runBLEScan track a run's overall exit status without itself
+// reading a ble.Diagnostic field — renderBLEDiagnostic must stay the only
+// reader of ble.Diagnostic's fields outside this conversion, as
+// diagnostic_enforcement_test.go enforces.
 func renderBLEDiagnostic(w io.Writer, d ble.Diagnostic) bool {
 	return renderDiagnostic(w, engine.Diagnostic{
 		Severity: d.Severity,
@@ -105,8 +106,8 @@ func renderBLEDiagnostic(w io.Writer, d ble.Diagnostic) bool {
 // completion on stderr, render the final Report via the resolved Writer,
 // write it to stdout, and — if outputFile is set — additionally write the
 // identical bytes to that file. File persistence wraps the same Writer
-// output already written to stdout above (spine AD-11) — it never blocks or
-// replaces the stdout write, it's strictly additive.
+// output already written to stdout above — it never blocks or replaces the
+// stdout write, it's strictly additive.
 //
 // Note the parameter is named reportW, not w as in runScan: runScan's w is
 // its *progress* writer and it sends the report to the reportWriter global,
@@ -240,15 +241,15 @@ failure.`, ble.DefaultOptions().Window),
 }
 
 func init() {
-	// Local flags on bleCmd only (NL-AD-1) — never a PersistentFlags on a
-	// shared parent, matching scanCmd's flags in root.go. A genuine
+	// Local flags on bleCmd only — never a PersistentFlags on a shared
+	// parent, matching scanCmd's flags in root.go. A genuine
 	// duration value gets pflag's native Duration type (unlike scanCmd's
 	// comma-list/enum flags, which are all String) so an invalid value like
 	// "abc" is rejected by cobra with a clear error instead of silently
 	// parsing to zero.
 	bleCmd.Flags().Duration("window", ble.DefaultOptions().Window, "Listening window duration for the BLE scan, greater than zero (e.g. 5s, 10s).")
-	// --format/--output-file flag names match nats scan's (NL-AD-1's
-	// explicit rule, unchanged since Story 4.1), still declared locally.
+	// --format/--output-file flag names deliberately match nats scan's, but
+	// are still declared locally rather than shared.
 	bleCmd.Flags().String("format", defaultBLEFormat, "Output format for the BLE scan summary: table, json, markdown, or plain.")
 	bleCmd.Flags().String("output-file", "", "Additionally write the BLE scan summary to this file, verbatim, alongside the normal stdout output. Unset: stdout only.")
 }

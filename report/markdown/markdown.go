@@ -1,7 +1,7 @@
-// Package markdown renders a Report as a Markdown table (AD-7), reusing the
-// same column set as report/table (Story 1.7): IP, MAC, Hostname, Vendor,
-// Open Ports, Device Type. It consumes only the engine's final Report struct,
-// never core/engine's live state.
+// Package markdown renders a Report as a Markdown table, reusing the same
+// column set as report/table: IP, MAC, Hostname, Vendor, Open Ports, Device
+// Type. It consumes only the engine's final Report struct, never
+// core/engine's live state.
 package markdown
 
 import (
@@ -32,10 +32,9 @@ func (Writer) Write(r engine.Report) ([]byte, error) {
 	fmt.Fprintln(&buf, "| --- | --- | --- | --- | --- | --- |")
 
 	for _, d := range r.Devices {
-		// DeviceType's zero value renders as "unknown" per FR-7, matching
-		// report/table's convention (Story 1.7) — Hostname, Vendor, and
-		// OpenPorts have no such taxonomy default and render as their true
-		// empty/zero value.
+		// DeviceType's zero value renders as "unknown", matching
+		// report/table's convention — Hostname, Vendor, and OpenPorts have no
+		// such taxonomy default and render as their true empty/zero value.
 		deviceType := d.DeviceType
 		if deviceType == "" {
 			deviceType = engine.DeviceTypeUnknown

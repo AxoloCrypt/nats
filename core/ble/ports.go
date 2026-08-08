@@ -5,12 +5,13 @@ import (
 	"time"
 )
 
-// BLEScanner is the pinned driven-adapter interface (spine AD-2), copied
-// exactly — it also binds the future Android adapter (AD-3).
+// BLEScanner is the driven-adapter interface every platform scanner
+// implements, including the deferred Android bridge.
+//
 // The method signatures are pinned; the obligations documented on them are
-// what every implementation (including the deferred Android bridge) has to
-// honour for NL-FR-13's "a skipped piece is always named explicitly in the
-// warning, never silently dropped" to hold end to end.
+// what every implementation has to honour for "a skipped piece is always
+// named explicitly in the warning, never silently dropped" to hold end to
+// end.
 type BLEScanner interface {
 	// Probe reports whether a scan can run. On ok=false, reason must be a
 	// non-empty, human-readable diagnosis naming why — core/ble passes it
@@ -30,10 +31,10 @@ type BLEScanner interface {
 	Scan(ctx context.Context, window time.Duration) (<-chan Advertisement, error)
 }
 
-// Writer renders a final Report as bytes for one output format (spine AD-11)
-// — same shape as base spine's engine.Writer (AD-7), but its own
-// independently-defined type: core/ble must never import core/engine
-// (NL-AD-1's import-boundary rule, unchanged since Story 4.1). Each
+// Writer renders a final Report as bytes for one output format — same shape
+// as the LAN vertical's engine.Writer, but its own independently-defined
+// type: core/ble must never import core/engine (the import-boundary rule
+// enforced by import_test.go). Each
 // implementation (report/ble/table, report/ble/json, report/ble/markdown,
 // report/ble/plain) consumes only the Report — never core/ble's live scan
 // state — so a Writer stays decoupled from how a scan produced the devices

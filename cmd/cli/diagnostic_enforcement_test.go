@@ -8,26 +8,26 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// TestDiagnosticFieldsOnlyReadInRenderDiagnostic is the AD-8 enforcement test
-// committed to during epic planning: every Diagnostic, regardless of whether
-// core/engine, core/ble, or cmd/cli produced it, must be printed through
+// TestDiagnosticFieldsOnlyReadInRenderDiagnostic enforces the
+// single-renderer rule: every Diagnostic, regardless of whether core/engine,
+// core/ble, or cmd/cli produced it, must be printed through
 // renderDiagnostic. This uses type information (not just identifier names)
 // to verify nothing else in these packages reads a Diagnostic's Severity,
 // Message, or Reason field — i.e. nobody can bypass the shared renderer with
 // a stray fmt.Println.
 //
 // Both Diagnostic types are checked. core/ble defines its own, structurally
-// identical, type because NL-AD-1 forbids core/ble importing core/engine, so
-// a check written against core/engine.Diagnostic alone would silently leave
-// the entire BLE vertical unguarded — exactly the gap Story 4.7's review
-// found, where an invented severity token and message shape in runBLEScan
-// still passed this test.
+// identical, type because the import-boundary rule forbids core/ble
+// importing core/engine, so a check written against core/engine.Diagnostic
+// alone would silently leave the entire BLE vertical unguarded — a real gap
+// this codebase has hit before, where an invented severity token and message
+// shape in runBLEScan still passed this test.
 //
 // core/ble.Diagnostic has one additional sanctioned reader:
 // renderBLEDiagnostic, which exists solely to convert it into the
 // engine.Diagnostic that renderDiagnostic formats. That conversion is the
-// single code path AC #2 requires, not a second renderer — it produces no
-// output of its own.
+// single required code path, not a second renderer — it produces no output
+// of its own.
 func TestDiagnosticFieldsOnlyReadInRenderDiagnostic(t *testing.T) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo,
@@ -105,6 +105,6 @@ func TestDiagnosticFieldsOnlyReadInRenderDiagnostic(t *testing.T) {
 		}
 	}
 	if len(readingFuncs) != 0 {
-		t.Fatalf("Diagnostic fields must only be read inside their sanctioned renderer (AD-8); found reads in: %v", readingFuncs)
+		t.Fatalf("Diagnostic fields must only be read inside their sanctioned renderer; found reads in: %v", readingFuncs)
 	}
 }

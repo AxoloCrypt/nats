@@ -116,14 +116,13 @@ func TestEnrich_UpsertNotAppendedTwiceForAlreadyKnownPort(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if len(device.OpenPorts) != 1 {
-		t.Fatalf("expected the already-known (Port, Protocol) to be updated, not duplicated (AD-11), got %+v", device.OpenPorts)
+		t.Fatalf("expected the already-known (Port, Protocol) to be updated, not duplicated, got %+v", device.OpenPorts)
 	}
 }
 
 // TestEnrich_AgainstLocalListener exercises the real dial path (no fake
-// swapped in) against an actual local TCP listener, per Task 4's
-// requirement to test against a fake/local listener rather than a real
-// remote host.
+// swapped in) against an actual local TCP listener, deliberately rather than
+// against a real remote host.
 func TestEnrich_AgainstLocalListener(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -36,10 +36,10 @@ func TestWrite_EmptyReportProducesValidJSON(t *testing.T) {
 	}
 }
 
-// TestWrite_ZeroDevicesRendersEmptyArrayNotNull covers Task 7's "zero
-// devices must still render valid, well-formed output (e.g. valid
-// empty-array JSON)" requirement — a nil Devices slice must not surface to
-// a scripting consumer as JSON "null".
+// TestWrite_ZeroDevicesRendersEmptyArrayNotNull covers the rule that zero
+// devices must still render valid, well-formed output (here, a valid empty
+// JSON array) — a nil Devices slice must not surface to a scripting consumer
+// as JSON "null".
 func TestWrite_ZeroDevicesRendersEmptyArrayNotNull(t *testing.T) {
 	out, err := (Writer{}).Write(ble.Report{Devices: nil})
 	if err != nil {
@@ -86,7 +86,7 @@ func TestWrite_FullyPopulatedDeviceRoundTrips(t *testing.T) {
 }
 
 // TestWrite_EveryKeyAlwaysPresentEvenWhenEmpty is the regression test for
-// Task 3's "no omitempty" decision (AD-11): an empty Name must still
+// the deliberate "no omitempty" decision: an empty Name must still
 // serialize as a present key ("name":"") rather than being dropped from the
 // object entirely.
 func TestWrite_EveryKeyAlwaysPresentEvenWhenEmpty(t *testing.T) {

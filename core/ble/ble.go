@@ -6,7 +6,7 @@ import (
 	"nats/internal/strutil"
 )
 
-// unknownSkipReason keeps the "why" half of NL-FR-13's warning non-empty.
+// unknownSkipReason keeps the "why" half of a skip warning non-empty.
 // A skip reason is always the scanner's own diagnosis, passed through
 // verbatim and never replaced — but BLEScanner.Probe's contract (ports.go)
 // permits ok=false with an empty reason, and cmd/cli's renderDiagnostic
@@ -18,8 +18,8 @@ const unknownSkipReason = "the platform BLE scanner reported it could not start,
 // skipDiagnostic builds the one Diagnostic a skipped scan reports.
 //
 // Severity is always "warning", never "error": a permission gap (or an
-// unavailable adapter) is a degraded-but-completed condition, mirroring the
-// base spine's Story 1.5 precedent for a skipped privileged technique. The
+// unavailable adapter) is a degraded-but-completed condition, mirroring how
+// the LAN vertical reports a skipped privileged technique. The
 // message names the whole BLE scan rather than "a technique" because only
 // one scanner exists per platform build (the RegisterScanner/GetScanner
 // registry) — unlike LAN scanning's arp/icmp/mdns/ssdp fan-out, "skipped"
@@ -42,8 +42,8 @@ func skipDiagnostic(reason string) []Diagnostic {
 	}}
 }
 
-// Run is the BLE vertical's sole driving entrypoint (NL-AD-1). It never
-// imports nats/core/engine, nats/cmd/..., or (once it exists)
+// Run is the BLE vertical's sole driving entrypoint. It never imports
+// nats/core/engine, nats/cmd/..., or (once it exists)
 // nats/core/wifimonitor.
 //
 // Deliberate divergence from core/engine.Run, in both of the cases that
@@ -104,8 +104,8 @@ func Run(ctx context.Context, opts Options) (<-chan Event, error) {
 		}
 
 		// devices/seen merge repeated advertisements from the same physical
-		// device by Address, preserving the pre-existing AD-12 statelessness
-		// guarantee (both stay local to this goroutine closure — never
+		// device by Address, preserving the vertical's statelessness guarantee
+		// (both stay local to this goroutine closure — never
 		// package-level — same as devices already was before this merge was
 		// added). A real peripheral re-broadcasts roughly every 20ms-1.28s,
 		// so without merging, a single device would produce dozens of rows
@@ -161,9 +161,9 @@ func Run(ctx context.Context, opts Options) (<-chan Event, error) {
 				Address: adv.Address,
 				// Name is left exactly as adv.Name (possibly "") — an
 				// absent/empty field is a Writer's job to render as an
-				// explicit placeholder (AD-11, Story 4.7), not something
-				// core/ble bakes in early. Vendor is the opposite: it
-				// resolves its own "unknown" (AD-5) via DeriveVendor.
+				// explicit placeholder, not something core/ble bakes in
+				// early. Vendor is the opposite: it resolves its own
+				// "unknown" via DeriveVendor.
 				Name:             adv.Name,
 				Vendor:           DeriveVendor(adv),
 				DistanceEstimate: FormatDistance(EstimateDistance(adv.RSSI, adv.TXPower)),

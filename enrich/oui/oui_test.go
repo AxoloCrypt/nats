@@ -52,7 +52,7 @@ func TestEnrich_OverridesDiscoverySourcedVendor(t *testing.T) {
 		t.Fatalf("expected no error, got %v", err)
 	}
 	if device.Vendor != "Resolved Vendor" {
-		t.Fatalf("expected enricher's vendor to override discovery-sourced value (AD-10), got %q", device.Vendor)
+		t.Fatalf("expected enricher's vendor to override discovery-sourced value, got %q", device.Vendor)
 	}
 }
 
@@ -100,8 +100,8 @@ func TestEnrich_NoMACLeavesDeviceUnchanged(t *testing.T) {
 	}
 
 	e := &enricher{}
-	// Simulates a Device merged purely by IP (Story 1.4's IP-match rule),
-	// which has no MAC to resolve a vendor from.
+	// Simulates a Device merged purely by IP (Merge's IP-match rule), which
+	// has no MAC to resolve a vendor from.
 	device, err := e.Enrich(context.Background(), engine.Device{IP: "10.0.0.5"})
 	if err != nil {
 		t.Fatalf("expected no error, got %v", err)

@@ -30,27 +30,20 @@ CI (`.github/workflows/ci.yaml`) runs `go build ./...`, `go vet ./...`,
 `go test ./...` on every push. Pushing a `v*` tag additionally cross-builds
 the four-platform release matrix via GoReleaser (`.goreleaser.yaml`) and
 publishes a GitHub release. That four-platform list (linux/amd64,
-linux/arm64, linux/arm, windows/amd64) is a
-fixed architecture decision referred to in comments as "AD-14" — it's
-enforced by `goreleaser_config_test.go` at the repo root, which fails the
-build if `.goreleaser.yaml`'s matrix ever drifts from it. Treat any change
-to that matrix as a deliberate, explicit decision, not a routine edit.
+linux/arm64, linux/arm, windows/amd64) is the project's fixed supported-
+platform set — it's enforced by `goreleaser_config_test.go` at the repo
+root, which fails the build if `.goreleaser.yaml`'s matrix ever drifts from
+it. Treat any change to that matrix as a deliberate, explicit decision, not
+a routine edit.
 
-Any acceptance criterion phrased as a cross-platform guarantee (e.g. "no new
-cgo dependency," "runs without root") must be verified against every
-platform in that same four-platform matrix, not inferred from a build on
-whichever host happens to be running: `GOOS=<os> GOARCH=<arch> go list -deps
-./pkg` to check for an unwanted platform-specific dependency, and
-`CGO_ENABLED=0 GOOS=<os> go build ./pkg` to confirm it actually compiles
-cgo-free there. Story 4.1's Dev Agent Record once claimed cgo-freedom was
-verified via a Linux-only `go build ./...`, which cannot detect a
-darwin-only dependency — the gap wasn't caught until code review, well
-after the story was implemented.
-
-Note: comments throughout the codebase reference decision IDs like "AD-4",
-"FR-7", "Story 2.3" from an architecture/planning doc that is not checked
-into this repo. Treat these as historical rationale, not as pointers to a
-file you can open.
+Any claim phrased as a cross-platform guarantee (e.g. "no new cgo
+dependency," "runs without root") must be verified against every platform in
+that same four-platform matrix, not inferred from a build on whichever host
+happens to be running: `GOOS=<os> GOARCH=<arch> go list -deps ./pkg` to
+check for an unwanted platform-specific dependency, and `CGO_ENABLED=0
+GOOS=<os> go build ./pkg` to confirm it actually compiles cgo-free there. A
+Linux-only `go build ./...` has passed here while a darwin-only dependency
+was present, so it is not evidence of cgo-freedom.
 
 ## Architecture
 
@@ -141,7 +134,9 @@ discovery/*  →  core/engine (Merge, Classify)  →  enrich/*  →  report/*
   `ble.RegisterWriter` into `core/ble`'s registry, which is entirely
   separate from `core/engine`'s. `report/ble/internal/blerender` holds the
   shared placeholder/sanitization rules for the three human-readable BLE
-  writers; the JSON one deliberately skips it (see AD-11 below).
+  writers; the JSON one deliberately skips it, because it guarantees every
+  key is present in the object (no `omitempty`) rather than substituting a
+  human-readable placeholder.
 
 - **`cmd/cli`** wires everything together: blank-imports every
   `discovery/*`, `enrich/*`, `report/*` package (so their `init()`s run

@@ -1,6 +1,6 @@
-// Package json renders a Report as machine-readable JSON (AD-7), the format
-// aimed at scripting/integration use cases. It consumes only the engine's
-// final Report struct, never core/engine's live state.
+// Package json renders a Report as machine-readable JSON, the format aimed
+// at scripting/integration use cases. It consumes only the engine's final
+// Report struct, never core/engine's live state.
 package json
 
 import (

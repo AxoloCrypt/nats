@@ -1,7 +1,7 @@
 package ble
 
 // companyIDVendors maps a Bluetooth SIG assigned Company Identifier to its
-// vendor name (AD-5's sole source for DeriveVendor — never an OUI/MAC lookup).
+// vendor name — DeriveVendor's sole source, never an OUI/MAC lookup.
 //
 // Source: Nordic Semiconductor's bluetooth-numbers-database
 // (https://github.com/NordicSemiconductor/bluetooth-numbers-database),

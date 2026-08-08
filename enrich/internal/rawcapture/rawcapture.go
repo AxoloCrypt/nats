@@ -1,11 +1,11 @@
 // Package rawcapture holds the gopacket/libpcap capture-handle plumbing
-// shared by enrich/tcpsyn and enrich/udpscan (Story 2.3): opening a live
-// capture handle, probing whether one can be opened at all (for
+// shared by enrich/tcpsyn and enrich/udpscan: opening a live capture
+// handle, probing whether one can be opened at all (for
 // RequiresPrivilege/ProbePrivilege), and resolving which local
 // interface/IP can reach a given remote IP.
 //
-// This mirrors discovery/arp's capture pattern (Story 1.2) rather than
-// reinventing it, but cannot import arp's own logic directly: it lives in
+// This mirrors discovery/arp's capture pattern rather than reinventing it,
+// but cannot import arp's own logic directly: it lives in
 // discovery/internal/subnetutil, which Go's internal-package visibility
 // rule restricts to importers under discovery/, and enrich/tcpsyn,
 // enrich/udpscan live under enrich/ instead.
@@ -22,7 +22,7 @@ import (
 
 // PacketHandle is the minimal capture-handle surface tcpsyn/udpscan need,
 // swappable in tests for a fake so no real libpcap/root access is required
-// (AD-6 testability convention).
+// (the project-wide testability convention).
 type PacketHandle interface {
 	Close()
 	WritePacketData([]byte) error

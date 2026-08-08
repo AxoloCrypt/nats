@@ -1,7 +1,7 @@
 package ble
 
 // DeriveVendor resolves Vendor from the standardized Bluetooth SIG CompanyID
-// in manufacturer-specific data when present (AD-5), and returns "unknown"
+// in manufacturer-specific data when present, and returns "unknown"
 // otherwise — it never falls back to an OUI/MAC-prefix lookup, since many
 // BLE devices randomize their advertised address (RPA/NRPA), decoupling it
 // from any fixed OUI even though address randomization isn't universal.

@@ -1,7 +1,7 @@
 // Package plain renders a BLE Report as simple line-oriented human-readable
-// text (spine AD-11), with no table-drawing characters, mirroring
-// report/plain's structure. It consumes only core/ble's final Report
-// struct, never core/ble's live scan state.
+// text, with no table-drawing characters, mirroring report/plain's
+// structure. It consumes only core/ble's final Report struct, never
+// core/ble's live scan state.
 package plain
 
 import (

@@ -1,8 +1,8 @@
 name: CI
 
-# On every push: build + test (Task 2, AC #2).
-# On a `v*` tag push: additionally cross-compile the AD-14 four-platform
-# release matrix and publish a GitHub release (Task 2, AC #2).
+# On every push: build + test.
+# On a `v*` tag push: additionally cross-compile the fixed four-platform
+# release matrix and publish a GitHub release.
 on:
   push:
     tags:
@@ -45,7 +45,7 @@ jobs:
       - name: go test ./...
         run: go test ./...
 
-  # Builds the fixed four-target matrix from .goreleaser.yaml/AD-14. One
+  # Builds the fixed four-target matrix from .goreleaser.yaml. One
   # matrix leg per platform, each on the runner OS that can natively
   # provide (or cross-provide) the C toolchain + libpcap/Npcap headers
   # gopacket/pcap's cgo bindings need — see .goreleaser.yaml's header

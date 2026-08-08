@@ -1,5 +1,5 @@
 // Package dns implements engine.Enricher via reverse DNS lookup, one of the
-// two default enrichers (FR-5, AD-12).
+// always-on default enrichers.
 package dns
 
 import (
@@ -27,9 +27,8 @@ func (e *enricher) RequiresPrivilege() bool {
 
 // ProbePrivilege implements engine.PrivilegeProber. Reverse DNS lookup never
 // needs elevated privilege, but it is still implemented as a live probe
-// (AD-5) rather than a hardcoded false, for consistency with every other
-// adapter — including Story 2.3's opt-in enrichers, which do need a real
-// check.
+// rather than a hardcoded false, for consistency with every other adapter —
+// including the opt-in raw-socket enrichers, which do need a real check.
 func (e *enricher) ProbePrivilege() (bool, error) {
 	return probePrivilege()
 }
@@ -56,7 +55,7 @@ func (e *enricher) Enrich(ctx context.Context, device engine.Device) (engine.Dev
 			return device, err
 		}
 		// No PTR record is an ordinary, expected outcome for many devices,
-		// never an error (per Task 3's OUI counterpart).
+		// never an error — the same stance enrich/oui takes on a lookup miss.
 		return device, nil
 	}
 	if len(names) == 0 {

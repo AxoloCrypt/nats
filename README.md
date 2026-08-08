@@ -10,9 +10,9 @@ Download the archive for your platform from the
 [GitHub Releases page](https://github.com/AxoloCrypt/nats/releases), unpack
 it, and put the `nats` (or `nats.exe`) binary on your `PATH`.
 
-Every release ships prebuilt binaries for exactly these four platforms (fixed
-per the project's architecture spine, AD-14 — this list does not change on a
-per-release basis):
+Every release ships prebuilt binaries for exactly these four platforms. The
+list is a deliberate, fixed project decision — it does not change on a
+per-release basis:
 
 | Platform | Archive |
 | --- | --- |

@@ -3,9 +3,9 @@ package engine
 import "testing"
 
 // TestClassify_Taxonomy covers at least one example per v1 taxonomy entry
-// (FR-7: router, phone, printer, IoT device, smart TV, computer) plus the
+// (router, phone, printer, IoT device, smart TV, computer) plus the
 // insufficient-signal -> "unknown" case, exercising Classify as the pure
-// function it is (AD-9): a plain Device in, a DeviceType string out.
+// function it is: a plain Device in, a DeviceType string out.
 func TestClassify_Taxonomy(t *testing.T) {
 	tests := []struct {
 		name string
@@ -135,8 +135,8 @@ func TestClassify_ServiceDataOutranksVendorSignal(t *testing.T) {
 }
 
 func TestClassify_BannerSignal(t *testing.T) {
-	// enrich/banner (Story 2.3) grabs a raw first-read from an already-open
-	// TCP port; a dropbear SSH banner is a common signature of embedded
+	// enrich/banner grabs a raw first-read from an already-open TCP port; a
+	// dropbear SSH banner is a common signature of embedded
 	// router/IoT firmware distinct from a desktop OpenSSH banner.
 	d := Device{
 		OpenPorts: []OpenPort{{Port: 22, Protocol: "tcp", State: "open", Banner: "SSH-2.0-dropbear_2020.81"}},

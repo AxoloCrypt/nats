@@ -1,6 +1,6 @@
 // Package tcpsyn implements engine.Enricher via a raw TCP SYN scan, one of
-// three opt-in "deeper enrichment" enrichers (FR-6) that never run unless a
-// user explicitly names them via cmd/cli's --enrich flag.
+// three opt-in "deeper enrichment" enrichers that never run unless a user
+// explicitly names them via cmd/cli's --enrich flag.
 package tcpsyn
 
 import (
@@ -20,10 +20,10 @@ func init() {
 	engine.RegisterEnricher(&enricher{})
 }
 
-// scanPorts mirrors enrich/tcpconnect's default port list (Story 2.2) so
-// the opt-in SYN scan checks the same common-services set rather than an
-// unrelated one — tcpconnect and tcpsyn disagreeing on the same port would
-// be confusing rather than "deeper" (FR-6).
+// scanPorts mirrors enrich/tcpconnect's default port list so the opt-in SYN
+// scan checks the same common-services set rather than an unrelated one —
+// tcpconnect and tcpsyn disagreeing on the same port would be confusing
+// rather than "deeper".
 var scanPorts = []int{21, 22, 23, 25, 53, 80, 110, 139, 143, 443, 445, 554, 631, 3389, 8009, 8080, 9100}
 
 // scanSourcePort is the source port used to address every crafted SYN in a
@@ -53,7 +53,7 @@ func (e *enricher) RequiresPrivilege() bool {
 // ProbePrivilege implements engine.PrivilegeProber, exposing the real
 // underlying error (e.g. permission denied, missing libpcap/Npcap driver)
 // instead of the generic "requires privilege" message RequiresPrivilege()
-// alone can only imply (AC #2, #3).
+// alone can only imply.
 func (e *enricher) ProbePrivilege() (bool, error) {
 	return probePrivilege()
 }
@@ -67,8 +67,8 @@ func (e *enricher) Enrich(ctx context.Context, device engine.Device) (engine.Dev
 		// A raw SYN needs a destination MAC to address the Ethernet frame
 		// (this is a same-subnet, L2 scan, like discovery/arp) — a device
 		// merged without one (e.g. mDNS/SSDP-only, no ARP corroboration)
-		// can't be targeted this way. Not an error: enrich/tcpconnect
-		// (Story 2.2) still covers it via a normal IP-routed connect.
+		// can't be targeted this way. Not an error: enrich/tcpconnect still
+		// covers it via a normal IP-routed connect.
 		return device, nil
 	}
 
@@ -119,8 +119,8 @@ func (e *enricher) Enrich(ctx context.Context, device engine.Device) (engine.Dev
 // upsertOpenTCPPort builds the OpenPort value to pass to device.Upsert for a
 // tcp port this enricher just confirmed, preserving any field (e.g. Banner,
 // set by enrich/banner) already recorded on a matching existing entry —
-// Upsert itself does a full-struct overwrite (AD-11), so building a bare
-// literal here would silently blank a field owned by a different enricher
+// Upsert itself does a full-struct overwrite, so building a bare literal
+// here would silently blank a field owned by a different enricher
 // that already ran, the same pitfall enrich/banner's own Upsert call site
 // avoids.
 func upsertOpenTCPPort(device engine.Device, port int, state string) engine.OpenPort {
@@ -172,7 +172,7 @@ func buildSYNPacket(srcMAC, dstMAC net.HardwareAddr, srcIP, dstIP net.IP, srcPor
 // answered SYN-ACK (open). Ports that answered RST (closed) or never
 // answered within window are simply absent from the result — closed and
 // filtered are indistinguishable from a raw scan's perspective, and only
-// "open" is ever recorded (AC #2's Upsert target).
+// "open" is ever recorded.
 func collectSYNResponses(ctx context.Context, handle rawcapture.PacketHandle, expectedSrcIP net.IP, ourPort layers.TCPPort, window time.Duration) []int {
 	packetCh := make(chan []byte, 100)
 	errCh := make(chan error, 1)
