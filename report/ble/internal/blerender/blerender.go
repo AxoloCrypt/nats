@@ -11,9 +11,8 @@
 package blerender
 
 import (
-	"strings"
-
 	"nats/core/ble"
+	"nats/internal/strutil"
 	"nats/report/internal/render"
 )
 
@@ -41,7 +40,7 @@ const Placeholder = "unknown"
 // an == "" check and render as an empty cell, making "no name broadcast"
 // indistinguishable from "name is one space" — exactly the silently-blank
 // column AD-11 forbids. This matches how core/ble itself already tests for
-// absence (skipDiagnostic's strings.TrimSpace check).
+// absence (skipDiagnostic's strutil.IsBlank check).
 func Fields(d ble.BLEDeviceProfile) (address, name, vendor, deviceType, distance string) {
 	return field(d.Address),
 		field(d.Name),
@@ -52,7 +51,7 @@ func Fields(d ble.BLEDeviceProfile) (address, name, vendor, deviceType, distance
 
 func field(s string) string {
 	s = render.SanitizeLine(s)
-	if strings.TrimSpace(s) == "" {
+	if strutil.IsBlank(s) {
 		return Placeholder
 	}
 	return s

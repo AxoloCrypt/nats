@@ -2,7 +2,8 @@ package ble
 
 import (
 	"context"
-	"strings"
+
+	"nats/internal/strutil"
 )
 
 // unknownSkipReason keeps the "why" half of NL-FR-13's warning non-empty.
@@ -31,7 +32,7 @@ const unknownSkipReason = "the platform BLE scanner reported it could not start,
 // print a blank one — the same bare warning unknownSkipReason exists to
 // prevent, just spelled with spaces.
 func skipDiagnostic(reason string) []Diagnostic {
-	if strings.TrimSpace(reason) == "" {
+	if strutil.IsBlank(reason) {
 		reason = unknownSkipReason
 	}
 	return []Diagnostic{{
@@ -141,10 +142,10 @@ func Run(ctx context.Context, opts Options) (<-chan Event, error) {
 				// blank it back — so the overwrite requires both that the
 				// existing value is still the placeholder AND the freshly
 				// derived one isn't (a whitespace-only Name must not count
-				// as resolved, hence TrimSpace rather than a bare "" check —
+				// as resolved, hence strutil.IsBlank rather than a bare "" check —
 				// the same class of gap already fixed once for skip-reason
 				// handling above).
-				if strings.TrimSpace(existing.Name) == "" && strings.TrimSpace(adv.Name) != "" {
+				if strutil.IsBlank(existing.Name) && !strutil.IsBlank(adv.Name) {
 					existing.Name = adv.Name
 				}
 				if vendor := DeriveVendor(adv); existing.Vendor == "unknown" && vendor != "unknown" {

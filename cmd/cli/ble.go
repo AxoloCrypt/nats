@@ -8,6 +8,7 @@ import (
 
 	"nats/core/ble"
 	"nats/core/engine"
+	"nats/internal/strutil"
 
 	_ "nats/report/ble/json"
 	_ "nats/report/ble/markdown"
@@ -50,7 +51,7 @@ const defaultBLEFormat = "table"
 // to an empty format name.
 func resolveBLEFormat(cmd *cobra.Command) string {
 	format := defaultBLEFormat
-	if raw, _ := cmd.Flags().GetString("format"); strings.TrimSpace(raw) != "" {
+	if raw, _ := cmd.Flags().GetString("format"); !strutil.IsBlank(raw) {
 		format = strings.ToLower(strings.TrimSpace(raw))
 	}
 	return format
