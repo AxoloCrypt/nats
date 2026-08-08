@@ -10,7 +10,7 @@ Download the archive for your platform from the
 [GitHub Releases page](https://github.com/AxoloCrypt/nats/releases), unpack
 it, and put the `nats` (or `nats.exe`) binary on your `PATH`.
 
-Every release ships prebuilt binaries for exactly these six platforms (fixed
+Every release ships prebuilt binaries for exactly these four platforms (fixed
 per the project's architecture spine, AD-14 — this list does not change on a
 per-release basis):
 
@@ -19,8 +19,6 @@ per-release basis):
 | Linux (x86_64) | `nats_linux_amd64.tar.gz` |
 | Linux (ARM64, e.g. Raspberry Pi 4/5, 64-bit Termux) | `nats_linux_arm64.tar.gz` |
 | Linux (ARMv7, e.g. older Android/Termux devices, Raspberry Pi Zero/1) | `nats_linux_arm.tar.gz` |
-| macOS (Intel) | `nats_darwin_amd64.tar.gz` |
-| macOS (Apple Silicon) | `nats_darwin_arm64.tar.gz` |
 | Windows (x86_64) | `nats_windows_amd64.zip` |
 
 ### Runtime dependency: libpcap / Npcap
@@ -34,7 +32,6 @@ installed to use the privileged parts of it:
 - **Linux (including Termux/Android):** install `libpcap` via your package
   manager, e.g. `sudo apt-get install libpcap0.8` (Debian/Ubuntu),
   `sudo dnf install libpcap` (Fedora), or `pkg install libpcap` (Termux).
-- **macOS:** libpcap ships with the OS — no extra install needed.
 - **Windows:** install [Npcap](https://npcap.com/) (the WinPcap successor).
   During Npcap's installer, leave "Install Npcap in WinPcap API-compatible
   Mode" checked, which is what `nats` expects.
@@ -167,4 +164,4 @@ go build -o nats ./cmd/cli
 Releases are cut via [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`)
 and GitHub Actions (`.github/workflows/ci.yaml`): every push runs
 `go build`/`go test`, and pushing a `v*` tag cross-compiles and publishes
-binaries for all six platforms listed above.
+binaries for all four platforms listed above.

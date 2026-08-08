@@ -209,7 +209,7 @@ lookup, TCP connect port scan). Every other technique/enricher is opt-in via
 --techniques/--enrich.
 
 Privilege requirements: ARP discovery (the default) opens a raw packet
-capture handle, which typically needs root/sudo (Linux/macOS/Termux) or
+capture handle, which typically needs root/sudo (Linux/Termux) or
 Administrator (Windows). The --enrich opt-in "tcpsyn" and "udpscan"
 enrichers need the same elevated privilege for the same reason. ICMP
 discovery tries an unprivileged socket first and only falls back to a

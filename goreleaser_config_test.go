@@ -14,12 +14,17 @@ var goosRe = regexp.MustCompile(`(?m)^\s*goos:\s*\[(\w+)\]`)
 var goarchRe = regexp.MustCompile(`(?m)^\s*goarch:\s*\[(\w+)\]`)
 
 // TestGoReleaserConfigTargetsMatchAD14 fails CI if .goreleaser.yaml's build
-// matrix ever drifts from the six platforms AD-14 fixes as a hard
-// architecture invariant: linux/amd64, linux/arm64, linux/arm, darwin/amd64,
-// darwin/arm64, windows/amd64. Per AD-14 and this story's Dev Notes,
-// removing (or silently adding) a release target is a spine-level decision,
-// not something a routine .goreleaser.yaml edit should be able to slip past
-// CI.
+// matrix ever drifts from the four platforms AD-14 fixes as a hard
+// architecture invariant: linux/amd64, linux/arm64, linux/arm,
+// windows/amd64. Per AD-14 and this story's Dev Notes, removing (or
+// silently adding) a release target is a spine-level decision, not
+// something a routine .goreleaser.yaml edit should be able to slip past CI.
+//
+// The two darwin targets this test previously required were removed on
+// 2026-08-07 by exactly the kind of explicit spine update AD-14 demands
+// (Sprint Change Proposal "Drop macOS as a Supported Platform"), so this
+// want-set was updated in the same commit as .goreleaser.yaml — the test
+// and the config it guards must never move separately, or CI breaks.
 func TestGoReleaserConfigTargetsMatchAD14(t *testing.T) {
 	data, err := os.ReadFile(".goreleaser.yaml")
 	if err != nil {
@@ -55,8 +60,6 @@ func TestGoReleaserConfigTargetsMatchAD14(t *testing.T) {
 		"linux/amd64":   true,
 		"linux/arm64":   true,
 		"linux/arm":     true,
-		"darwin/amd64":  true,
-		"darwin/arm64":  true,
 		"windows/amd64": true,
 	}
 
@@ -70,7 +73,7 @@ func TestGoReleaserConfigTargetsMatchAD14(t *testing.T) {
 	}
 	for target := range got {
 		if !want[target] {
-			t.Errorf("target %q in .goreleaser.yaml is not one of the six AD-14 targets — adding or removing a release target requires an ARCHITECTURE-SPINE.md#AD-14 update, not a routine .goreleaser.yaml edit", target)
+			t.Errorf("target %q in .goreleaser.yaml is not one of the four AD-14 targets — adding or removing a release target requires an ARCHITECTURE-SPINE.md#AD-14 update, not a routine .goreleaser.yaml edit", target)
 		}
 	}
 }

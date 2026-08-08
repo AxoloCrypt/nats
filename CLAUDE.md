@@ -28,9 +28,9 @@ even just to compile). On Debian/Ubuntu: `sudo apt-get install libpcap-dev`.
 
 CI (`.github/workflows/ci.yaml`) runs `go build ./...`, `go vet ./...`,
 `go test ./...` on every push. Pushing a `v*` tag additionally cross-builds
-the six-platform release matrix via GoReleaser (`.goreleaser.yaml`) and
-publishes a GitHub release. That six-platform list (linux/amd64,
-linux/arm64, linux/arm, darwin/amd64, darwin/arm64, windows/amd64) is a
+the four-platform release matrix via GoReleaser (`.goreleaser.yaml`) and
+publishes a GitHub release. That four-platform list (linux/amd64,
+linux/arm64, linux/arm, windows/amd64) is a
 fixed architecture decision referred to in comments as "AD-14" — it's
 enforced by `goreleaser_config_test.go` at the repo root, which fails the
 build if `.goreleaser.yaml`'s matrix ever drifts from it. Treat any change

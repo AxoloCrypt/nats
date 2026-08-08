@@ -1,8 +1,8 @@
 # GoReleaser configuration (schema v2, https://goreleaser.com).
 #
 # AD-14 (architecture spine) fixes the release platform matrix at exactly
-# six targets: linux/amd64, linux/arm64, linux/arm (Android/Termux),
-# darwin/amd64, darwin/arm64, windows/amd64. Removing (or silently adding)
+# four targets: linux/amd64, linux/arm64, linux/arm (Android/Termux),
+# windows/amd64. Removing (or silently adding)
 # a target here is a spine-level decision requiring an explicit
 # ARCHITECTURE-SPINE.md#AD-14 update — it is NOT a routine release-day
 # tweak. `goreleaser_config_test.go` at the repo root fails the build if
@@ -16,6 +16,15 @@
 # platform's toolchain is provisioned, and README.md's "Runtime
 # dependencies" section for what end users need installed to actually run
 # the privileged techniques/enrichers.
+#
+# 2026-08-07: darwin/amd64 and darwin/arm64 were removed from this matrix by
+# an explicit AD-14 spine update (Sprint Change Proposal "Drop macOS as a
+# Supported Platform") — macOS is no longer a supported platform for any
+# feature. Driver: BLE scanning reaches macOS Bluetooth only via
+# github.com/tinygo-org/cbgo, a cgo binding against the Objective-C
+# CoreBluetooth framework, contradicting the BLE spine's no-new-cgo rule
+# (AD-2). Note this does NOT make the build cgo-free — gopacket/pcap above
+# still requires CGO_ENABLED=1 on every remaining target.
 version: 2
 
 project_name: nats
@@ -57,26 +66,6 @@ builds:
       - CGO_ENABLED=1
       - CC=arm-linux-gnueabihf-gcc
       - CXX=arm-linux-gnueabihf-g++
-    flags:
-      - -trimpath
-
-  - id: darwin-amd64
-    main: ./cmd/cli
-    binary: nats
-    goos: [darwin]
-    goarch: [amd64]
-    env:
-      - CGO_ENABLED=1
-    flags:
-      - -trimpath
-
-  - id: darwin-arm64
-    main: ./cmd/cli
-    binary: nats
-    goos: [darwin]
-    goarch: [arm64]
-    env:
-      - CGO_ENABLED=1
     flags:
       - -trimpath
 

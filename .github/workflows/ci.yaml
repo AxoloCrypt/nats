@@ -1,7 +1,7 @@
 name: CI
 
 # On every push: build + test (Task 2, AC #2).
-# On a `v*` tag push: additionally cross-compile the AD-14 six-platform
+# On a `v*` tag push: additionally cross-compile the AD-14 four-platform
 # release matrix and publish a GitHub release (Task 2, AC #2).
 on:
   push:
@@ -45,7 +45,7 @@ jobs:
       - name: go test ./...
         run: go test ./...
 
-  # Builds the fixed six-target matrix from .goreleaser.yaml/AD-14. One
+  # Builds the fixed four-target matrix from .goreleaser.yaml/AD-14. One
   # matrix leg per platform, each on the runner OS that can natively
   # provide (or cross-provide) the C toolchain + libpcap/Npcap headers
   # gopacket/pcap's cgo bindings need — see .goreleaser.yaml's header
@@ -80,18 +80,6 @@ jobs:
             goos: linux
             goarch: arm
             goarm: "7"
-          - id: darwin-amd64
-            # macos-15-intel is GitHub's last supported Intel macOS image
-            # (x64 hosted runners retire ~Aug 2027) and is paid-tier only
-            # (not part of the free runner minutes) — confirm the repo/org
-            # has billing enabled for it, or this leg won't schedule.
-            os: macos-15-intel
-            goos: darwin
-            goarch: amd64
-          - id: darwin-arm64
-            os: macos-latest
-            goos: darwin
-            goarch: arm64
           - id: windows-amd64
             os: windows-latest
             goos: windows
@@ -123,10 +111,6 @@ jobs:
           echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/armhf.list
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabihf libpcap-dev:armhf
-
-      # darwin-amd64/darwin-arm64 need no extra install: libpcap headers
-      # ship with the Xcode Command Line Tools already present on
-      # GitHub-hosted macOS runners.
 
       - name: Set up MinGW-w64 (windows/amd64)
         if: matrix.id == 'windows-amd64'
