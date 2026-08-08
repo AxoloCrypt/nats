@@ -1,170 +1,65 @@
 # nats
 
-`nats` is a command-line network scanner: it discovers devices on your local
-network and enriches them with identifying information (hostname, MAC
-vendor, open ports, best-effort device type).
+`nats` is a command-line network scanner. It discovers devices on your local
+network and enriches them with identifying information — hostname, MAC
+vendor, open ports, and a best-effort device type — then prints a summary in
+the format you ask for.
 
-## Installation
+It also scans for nearby Bluetooth Low Energy devices, listing each one with
+its vendor, a guessed device type, and a rough distance estimate.
 
-Download the archive for your platform from the
-[GitHub Releases page](https://github.com/AxoloCrypt/nats/releases), unpack
-it, and put the `nats` (or `nats.exe`) binary on your `PATH`.
+## What it does
 
-Every release ships prebuilt binaries for exactly these four platforms. The
-list is a deliberate, fixed project decision — it does not change on a
-per-release basis:
+- **Discovery** — finds devices via ARP, ICMP, mDNS, or SSDP, alone or in
+  combination, and merges what each technique saw into one device per host.
+- **Enrichment** — resolves reverse DNS, MAC OUI vendor, and open TCP ports
+  by default; SYN scanning, UDP scanning, and banner grabbing are available
+  opt-in.
+- **Classification** — infers a device type (router, printer, phone, smart
+  TV, IoT device, computer) from the combined signals, on a best-effort
+  basis.
+- **BLE scanning** — a passive, bounded listening window that never pairs,
+  connects, or persists anything between runs.
+- **Output** — `table`, `json`, `markdown`, or `plain`, to stdout and
+  optionally to a file at the same time.
+- **Degrades instead of failing** — anything needing privilege you don't
+  have is skipped with a warning naming what and why, and the rest of the
+  scan still runs.
 
-| Platform | Archive |
-| --- | --- |
-| Linux (x86_64) | `nats_linux_amd64.tar.gz` |
-| Linux (ARM64, e.g. Raspberry Pi 4/5, 64-bit Termux) | `nats_linux_arm64.tar.gz` |
-| Linux (ARMv7, e.g. older Android/Termux devices, Raspberry Pi Zero/1) | `nats_linux_arm.tar.gz` |
-| Windows (x86_64) | `nats_windows_amd64.zip` |
+Single binary, no runtime beyond `libpcap`/Npcap for the raw-packet
+features. Prebuilt for Linux (x86_64, ARM64, ARMv7) and Windows (x86_64).
 
-### Runtime dependency: libpcap / Npcap
+**→ [Installation, command reference, and examples](docs/USAGE.md)**
 
-`nats`'s ARP discovery (the default technique) and its opt-in `tcpsyn`/
-`udpscan` enrichers capture raw packets via `libpcap`. This is a **runtime**
-dependency of the machine running `nats`, separate from the binary itself —
-it doesn't change which platforms `nats` ships for, only what you need
-installed to use the privileged parts of it:
+## Project status
 
-- **Linux (including Termux/Android):** install `libpcap` via your package
-  manager, e.g. `sudo apt-get install libpcap0.8` (Debian/Ubuntu),
-  `sudo dnf install libpcap` (Fedora), or `pkg install libpcap` (Termux).
-- **Windows:** install [Npcap](https://npcap.com/) (the WinPcap successor).
-  During Npcap's installer, leave "Install Npcap in WinPcap API-compatible
-  Mode" checked, which is what `nats` expects.
+`nats` is **under active development and has not reached a stable release.**
 
-Discovery techniques that don't touch raw packets (`mdns`, `ssdp`) and
-enrichers that don't either (`dns`, `oui`, `tcpconnect`, `banner`) work
-without libpcap/Npcap installed.
+Expect bugs, rough edges, and incomplete features. Flags, output formats,
+and behaviour may change between versions without notice. Results may be
+wrong or incomplete: device-type classification is explicitly best-effort,
+BLE distance figures are coarse estimates with wide uncertainty bands, and a
+scan finding nothing is not proof that nothing is there.
 
-## Usage
+Don't rely on it for anything where a wrong or missing result matters.
+Bug reports and issues are welcome.
 
-```
-nats scan [flags]
-```
+## Responsible use
 
-Running `nats scan` with no flags auto-detects your local subnet, performs
-an ARP-only discovery sweep, and enriches every device found with reverse
-DNS, MAC OUI vendor lookup, and a TCP connect port scan — then prints a
-`table`-formatted summary to stdout.
+`nats` is a network scanning tool. Scanning networks, hosts, or devices that
+you do not own — or do not have explicit permission to test — may be illegal
+where you live, regardless of your intent and regardless of whether anything
+is harmed or disrupted. Many organisations also prohibit it by policy on
+networks they operate.
 
-### Flags
+**You are solely responsible for how you use this tool.** It is your
+responsibility to ensure your use of it complies with all applicable laws
+and with the rules of any network you run it against.
 
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--subnet` | auto-detected | Subnet to scan, in CIDR notation (e.g. `192.168.1.0/24`). |
-| `--techniques` | `arp` | Comma-separated discovery techniques to run instead of the default: `arp`, `icmp`, `mdns`, `ssdp`. |
-| `--enrich` | *(none — the three defaults below always run)* | Comma-separated **opt-in** enrichers to run in addition to the always-on defaults: `tcpsyn`, `udpscan`, `banner`. |
-| `--format` | `table` | Output format for the scan summary: `table`, `json`, `markdown`, or `plain`. |
-| `--output-file` | *(unset)* | Additionally write the scan summary to this file, verbatim, alongside the normal stdout output. |
-
-The three enrichers that run by default and can't be turned off — reverse
-DNS lookup, MAC OUI vendor lookup, and a TCP connect port scan — never need
-elevated privilege.
-
-## Scanning for BLE devices
-
-```
-nats ble [flags]
-```
-
-`nats ble` is fully independent of `nats scan`: it never triggers LAN or
-Wi-Fi discovery, and vice versa. It runs OS-native passive BLE scanning and
-never requires root/sudo — when the OS Bluetooth permission isn't granted,
-`nats` reports why and exits cleanly instead of prompting for elevated
-privilege.
-
-Each run is a single bounded listening window: `nats ble` listens for
-`--window`, reports once, and exits. Nothing is cached, persisted, or
-correlated across runs.
-
-```
-$ nats ble --window 5s
-ADDRESS            NAME       VENDOR      DEVICE TYPE  DISTANCE
-aa:bb:cc:dd:ee:ff  My Watch   Acme Corp   wearable     ~1.2m (±0.4m)
-11:22:33:44:55:66  unknown    unknown     unknown      ~4.8m (±1.9m)
-```
-
-### Flags
-
-| Flag | Default | Description |
-| --- | --- | --- |
-| `--window` | `5s` | Listening window duration, greater than zero (e.g. `5s`, `10s`). |
-| `--format` | `table` | Output format for the BLE scan summary: `table`, `json`, `markdown`, or `plain`. |
-| `--output-file` | *(unset)* | Additionally write the BLE scan summary to this file, verbatim, alongside the normal stdout output. |
-
-Any field a device doesn't broadcast — most commonly its name — renders as
-an explicit `unknown` rather than being left blank or dropped, so a row
-always has the same shape.
-
-The completion line (`BLE scan complete. N devices found.`) and any
-warnings go to **stderr**, so `--format json` output on stdout stays
-parseable:
-
-```
-$ nats ble --format json > devices.json
-BLE scan complete. 2 devices found.
-```
-
-Note that `nats ble --format json` includes a top-level `diagnostics` array
-alongside `devices`. If Bluetooth permission is denied the scan is skipped,
-`devices` is empty, and the reason appears in `diagnostics` — that is how a
-script tells "nothing was nearby" from "the scan never ran".
-
-### Privilege requirements (root/sudo/Administrator)
-
-Some techniques and enrichers need to open a raw socket or packet capture
-handle, which the OS only grants to a privileged process:
-
-| Requires root/sudo (or Administrator on Windows) | Does not |
-| --- | --- |
-| `arp` discovery (the default technique) | `icmp` discovery — usually works unprivileged, but depends on the OS's ping-group configuration |
-| `tcpsyn` enricher (`--enrich tcpsyn`) | `mdns` / `ssdp` discovery |
-| `udpscan` enricher (`--enrich udpscan`) | `dns`, `oui`, `tcpconnect` enrichers (always-on defaults) |
-| | `banner` enricher (`--enrich banner`) |
-
-If you run `nats scan` unprivileged and a selected technique/enricher can't
-get the privilege it needs, `nats` doesn't fail the whole scan — it skips
-just that one, prints a `warning` diagnostic naming it and why, and still
-returns results for everything else you asked for. `nats scan --help`
-describes these same requirements inline, so you get the same answer
-whether you check `--help` up front or read the warning at runtime.
-
-### Examples
-
-```sh
-# Default: auto-detected subnet, ARP-only discovery, default enrichment, table output
-nats scan
-
-# Explicit subnet, multiple discovery techniques
-sudo nats scan --subnet 192.168.1.0/24 --techniques arp,mdns,ssdp
-
-# Opt in to SYN scan + banner grabbing (SYN scan needs root/sudo)
-sudo nats scan --enrich tcpsyn,banner
-
-# JSON output, also saved to a file
-nats scan --format json --output-file scan-results.json
-```
-
-## Building from source
-
-Requires Go (see `go.mod` for the minimum version) and libpcap/Npcap
-development headers installed (see the runtime dependency section above —
-building, not just running, needs the headers too):
-
-```sh
-go build -o nats ./cmd/cli
-```
-
-## Release pipeline
-
-Releases are cut via [GoReleaser](https://goreleaser.com) (`.goreleaser.yaml`)
-and GitHub Actions (`.github/workflows/ci.yaml`): every push runs
-`go build`/`go test`, and pushing a `v*` tag cross-compiles and publishes
-binaries for all four platforms listed above.
+`nats` is published for legitimate purposes: inventorying and understanding
+networks you own or are authorised to assess. The author accepts no
+responsibility or liability for how anyone else chooses to use it, or for
+any damage, disruption, or legal consequence arising from its use or misuse.
 
 ## License
 

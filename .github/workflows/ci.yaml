@@ -204,7 +204,11 @@ jobs:
             name="nats_${platform//-/_}"
             # LICENSE is required, not optional: GPL-3.0 obliges us to
             # convey a copy of the license with every binary we distribute.
+            # USAGE.md ships too — the README is only an overview, so
+            # without it an archive documents nothing about how to run nats.
             cp ../README.md ../LICENSE "$bin_dir/"
+            mkdir -p "$bin_dir/docs"
+            cp ../docs/USAGE.md "$bin_dir/docs/"
             if [[ "$platform" == windows-* ]]; then
               (cd "$bin_dir" && zip -q -r "../../release/${name}.zip" .)
             else

@@ -12,8 +12,8 @@
 # is a cgo binding against libpcap/Npcap, so every build below
 # needs CGO_ENABLED=1 plus a matching C toolchain and libpcap headers for
 # its target — see .github/workflows/ci.yaml's release job for how each
-# platform's toolchain is provisioned, and README.md's "Runtime
-# dependencies" section for what end users need installed to actually run
+# platform's toolchain is provisioned, and docs/USAGE.md's "Runtime
+# dependency" section for what end users need installed to actually run
 # the privileged techniques/enrichers.
 #
 # 2026-08-07: darwin/amd64 and darwin/arm64 were deliberately dropped from
@@ -101,6 +101,7 @@ archives:
     files:
       - README.md
       - LICENSE
+      - docs/USAGE.md
 
 checksum:
   name_template: "checksums.txt"
