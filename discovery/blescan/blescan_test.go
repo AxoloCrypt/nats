@@ -23,6 +23,38 @@ func (fakePayload) Bytes() []byte                                         { retu
 func (fakePayload) ManufacturerData() []bluetooth.ManufacturerDataElement { return nil }
 func (fakePayload) ServiceData() []bluetooth.ServiceDataElement           { return nil }
 
+// multiPayload carries several manufacturer-data elements, in an order that
+// puts the lowest CompanyID last so a mfg[0] implementation fails this test.
+type multiPayload struct{ fakePayload }
+
+func (multiPayload) ManufacturerData() []bluetooth.ManufacturerDataElement {
+	return []bluetooth.ManufacturerDataElement{
+		{CompanyID: 0x004C, Data: []byte{0xAA}},
+		{CompanyID: 0x00E0, Data: []byte{0xBB}},
+		{CompanyID: 0x0006, Data: []byte{0xCC}},
+	}
+}
+
+// The real slice comes from ranging a Go map upstream, so its order is
+// randomized per callback; toAdvertisement must resolve the same CompanyID
+// regardless of which permutation it is handed.
+func TestToAdvertisement_PicksLowestCompanyIDDeterministically(t *testing.T) {
+	result := bluetooth.ScanResult{AdvertisementPayload: multiPayload{}}
+
+	for i := 0; i < 50; i++ {
+		adv := toAdvertisement(result)
+		if adv.CompanyID == nil {
+			t.Fatal("expected a CompanyID to be resolved")
+		}
+		if *adv.CompanyID != 0x0006 {
+			t.Fatalf("expected the lowest CompanyID 0x0006, got 0x%04X", *adv.CompanyID)
+		}
+		if len(adv.ManufacturerData) != 1 || adv.ManufacturerData[0] != 0xCC {
+			t.Fatalf("ManufacturerData must come from the same element as CompanyID, got %v", adv.ManufacturerData)
+		}
+	}
+}
+
 func TestProbe_Ok(t *testing.T) {
 	orig := enableAdapter
 	defer func() { enableAdapter = orig }()

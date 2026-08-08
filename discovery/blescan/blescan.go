@@ -168,10 +168,26 @@ func toAdvertisement(result bluetooth.ScanResult) ble.Advertisement {
 		adv.ServiceUUIDs = append(adv.ServiceUUIDs, uuid.String())
 	}
 
+	// An advertisement may legitimately carry several manufacturer-data
+	// elements (dual-stack beacons commonly pair an Apple entry with a vendor
+	// one), but Advertisement holds a single CompanyID, so exactly one has to
+	// be chosen. The lowest CompanyID wins — an arbitrary rule, but a *stable*
+	// one, and stability is the whole point: tinygo builds this slice by
+	// ranging a Go map (gap_linux.go's makeScanResult), whose iteration order
+	// is randomized per range. Taking mfg[0] therefore resolved the same
+	// physical device to a different Vendor on different callbacks within a
+	// single scan. The remaining elements are dropped; carrying all of them
+	// would need a shape change to Advertisement (spine AD-5 pins it).
 	if mfg := result.ManufacturerData(); len(mfg) > 0 {
-		companyID := mfg[0].CompanyID
+		chosen := mfg[0]
+		for _, el := range mfg[1:] {
+			if el.CompanyID < chosen.CompanyID {
+				chosen = el
+			}
+		}
+		companyID := chosen.CompanyID
 		adv.CompanyID = &companyID
-		adv.ManufacturerData = mfg[0].Data
+		adv.ManufacturerData = chosen.Data
 	}
 
 	return adv
