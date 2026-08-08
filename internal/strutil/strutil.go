@@ -1,6 +1,8 @@
-// Package strutil holds string helpers shared across both nats verticals
-// (core/ble and core/engine) and cmd/cli, so a rule like "blank" gets one
-// definition instead of being restated — and drifting — at each call site.
+// Package strutil holds string helpers importable from any nats package —
+// currently used by core/ble, cmd/cli, and report/ble/internal/blerender,
+// and intended for reuse by core/engine and its siblings too — so a rule
+// like "blank" gets one definition instead of being restated (and drifting)
+// at each call site.
 package strutil
 
 import "strings"

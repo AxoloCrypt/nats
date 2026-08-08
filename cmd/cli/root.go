@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"nats/core/engine"
+	"nats/internal/strutil"
 
 	_ "nats/discovery/arp"
 	_ "nats/discovery/blescan"
@@ -56,7 +57,7 @@ func buildOptions(cmd *cobra.Command) engine.Options {
 		combined := strings.Join(opts.EnrichOptions, ",") + "," + enrich
 		opts.EnrichOptions = splitTechniques(combined)
 	}
-	if format, _ := cmd.Flags().GetString("format"); strings.TrimSpace(format) != "" {
+	if format, _ := cmd.Flags().GetString("format"); !strutil.IsBlank(format) {
 		opts.OutputFormat = strings.ToLower(strings.TrimSpace(format))
 	}
 	return opts
