@@ -25,9 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -86,9 +86,9 @@ jobs:
             goarch: amd64
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
 
@@ -96,27 +96,44 @@ jobs:
         if: matrix.id == 'linux-amd64'
         run: sudo apt-get update && sudo apt-get install -y libpcap-dev
 
+      # The runner's default apt sources point at amd64-only Ubuntu archive
+      # mirrors. Adding a foreign architecture without first pinning those
+      # sources to amd64 makes `apt-get update` also request the foreign
+      # arch's indexes from them, 404, and exit 100 — so the `Architectures:`
+      # line goes in before `dpkg --add-architecture`. ubuntu-24.04 keeps its
+      # sources in deb822 format at sources.list.d/ubuntu.sources (only 22.04
+      # still uses the one-line /etc/apt/sources.list).
       - name: Install cross toolchain + libpcap (linux/arm64)
         if: matrix.id == 'linux-arm64'
         run: |
+          sudo sed -i '/^Types: deb/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
           sudo dpkg --add-architecture arm64
           echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/arm64.list
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu libpcap-dev:arm64
 
+      # Same amd64 pinning rationale as the linux/arm64 step above.
       - name: Install cross toolchain + libpcap (linux/arm)
         if: matrix.id == 'linux-arm'
         run: |
+          sudo sed -i '/^Types: deb/a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
           sudo dpkg --add-architecture armhf
           echo "deb [arch=armhf] http://ports.ubuntu.com/ubuntu-ports $(lsb_release -cs) main universe" | sudo tee /etc/apt/sources.list.d/armhf.list
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabihf libpcap-dev:armhf
 
-      - name: Set up MinGW-w64 (windows/amd64)
+      # No setup action: windows-latest (windows-2025) already ships
+      # mingw-w64 gcc on PATH, which is all cgo needs here. This used to use
+      # egor-tensin/setup-mingw@v2, which installs mingw fine and then fails
+      # deleting a libpthread.dll.a that current mingw-builds no longer ship
+      # (upstream issues #15/#17, closed unfixed) — so it breaks the leg on
+      # whatever mingw version Chocolatey happens to serve. Kept as an
+      # explicit check so a runner image that drops gcc fails here, loudly,
+      # rather than inside goreleaser's cgo link step.
+      - name: Verify MinGW-w64 (windows/amd64)
         if: matrix.id == 'windows-amd64'
-        uses: egor-tensin/setup-mingw@v2
-        with:
-          platform: x64
+        shell: bash
+        run: gcc --version
 
       - name: Download Npcap SDK (windows/amd64)
         if: matrix.id == 'windows-amd64'
@@ -166,7 +183,7 @@ jobs:
           CGO_LDFLAGS: ${{ matrix.id == 'windows-amd64' && format('-L{0}/npcap-sdk/Lib/x64', github.workspace) || '' }}
         run: goreleaser build --single-target --clean --id ${{ matrix.id }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist-${{ matrix.id }}
           path: dist/${{ matrix.id }}_*/**
@@ -181,9 +198,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: dist-*
           path: dist
@@ -218,7 +235,7 @@ jobs:
           cd ../release
           sha256sum * > checksums.txt
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: release/*
           generate_release_notes: true
