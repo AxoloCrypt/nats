@@ -5,8 +5,10 @@ package blescan
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/go-ole/go-ole"
@@ -175,6 +177,34 @@ func (t *txPowerTracker) start(ctx context.Context) {
 	go t.run(ctx)
 }
 
+// stopWaitTimeout bounds how long run() waits for the Stopped event after
+// calling watcher.Stop(), on both the success and error paths — Stop()
+// failing synchronously doesn't mean the watcher never started stopping, so
+// waiting (bounded) rather than returning immediately avoids releasing the
+// watcher/handlers out from under a callback that could still be in
+// flight. The bound exists only so a Stopped event that's genuinely never
+// delivered can't block run() (and its deferred releases) forever.
+const stopWaitTimeout = 5 * time.Second
+
+// handleReceived is the Received callback's body, factored out of run() so
+// it can be driven directly by a test double in blescan_windows_test.go
+// without standing up a real WinRT watcher: it extracts Address and TX
+// power from a single received-advertisement event and records them into
+// the tracker, mirroring how a real device's advertisement flows through.
+func (t *txPowerTracker) handleReceived(args *advertisement.BluetoothLEAdvertisementReceivedEventArgs) {
+	rawAddr, err := args.GetBluetoothAddress()
+	if err != nil {
+		return
+	}
+
+	tx := txPowerFromArgs(args)
+	if tx == nil {
+		return
+	}
+
+	t.record(addressFromRaw(rawAddr), *tx)
+}
+
 // run stands up the second BluetoothLEAdvertisementWatcher and feeds every
 // received event's Address+TXPower into the tracker's map until ctx is
 // cancelled, following the exact same watcher setup
@@ -184,13 +214,32 @@ func (t *txPowerTracker) start(ctx context.Context) {
 // TypedEventHandler<Watcher, ReceivedEventArgs> computed via
 // winrt.ParameterizedInstanceGUID exactly as Scan computes its own, then
 // Start. It also mirrors Scan's Stopped handshake: Windows transitions the
-// watcher through an intermediate Stopping state, so this waits for the
-// Stopped event after calling Stop before releasing the watcher/handlers —
-// releasing earlier could free a COM object out from under a callback
-// still in flight. Unlike Scan's callback, this watcher's callback extracts
-// only Address and TX power rather than a full ScanResult, and nothing
-// here ever calls Connect or any GATT method.
+// watcher through an intermediate Stopping state, so this waits (bounded by
+// stopWaitTimeout) for the Stopped event after calling Stop before
+// releasing the watcher/handlers — releasing earlier could free a COM
+// object out from under a callback still in flight. Unlike Scan's callback,
+// this watcher's callback extracts only Address and TX power rather than a
+// full ScanResult, and nothing here ever calls Connect or any GATT method.
 func (t *txPowerTracker) run(ctx context.Context) {
+	// Every OS thread that makes COM calls must itself join the process's
+	// COM apartment first — tinygo's own Adapter.Enable() (adapter_windows.go)
+	// does this once via ole.RoInitialize(1) on whatever thread happens to
+	// call Enable(). run() has no such guarantee on its own: it's a freshly
+	// spawned goroutine that later blocks on <-ctx.Done() and <-stopped,
+	// either of which the Go scheduler may resume on a different OS thread
+	// than the one that started it. LockOSThread pins this goroutine to one
+	// OS thread for its entire COM-touching lifetime, and RoInitialize(1)
+	// joins that thread to the same multithreaded apartment Enable() already
+	// joined its own thread to. Without both, a COM call below can fail with
+	// CO_E_NOTINITIALIZED — every call site here already treats any error as
+	// "stop trying", so that failure would otherwise degrade silently into
+	// "TX power never populated" with nothing surfaced anywhere.
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	if err := ole.RoInitialize(1); err != nil {
+		return
+	}
+
 	watcher, err := advertisement.NewBluetoothLEAdvertisementWatcher()
 	if err != nil {
 		return
@@ -209,19 +258,7 @@ func (t *txPowerTracker) run(ctx context.Context) {
 		advertisement.SignatureBluetoothLEAdvertisementReceivedEventArgs,
 	)
 	receivedHandler := foundation.NewTypedEventHandler(ole.NewGUID(receivedGUID), func(_ *foundation.TypedEventHandler, _, arg unsafe.Pointer) {
-		args := (*advertisement.BluetoothLEAdvertisementReceivedEventArgs)(arg)
-
-		rawAddr, err := args.GetBluetoothAddress()
-		if err != nil {
-			return
-		}
-
-		tx := txPowerFromArgs(args)
-		if tx == nil {
-			return
-		}
-
-		t.record(addressFromRaw(rawAddr), *tx)
+		t.handleReceived((*advertisement.BluetoothLEAdvertisementReceivedEventArgs)(arg))
 	})
 	defer receivedHandler.Release()
 
@@ -254,10 +291,11 @@ func (t *txPowerTracker) run(ctx context.Context) {
 	}
 
 	<-ctx.Done()
-	if err := watcher.Stop(); err != nil {
-		return
+	_ = watcher.Stop()
+	select {
+	case <-stopped:
+	case <-time.After(stopWaitTimeout):
 	}
-	<-stopped
 }
 
 func init() {
