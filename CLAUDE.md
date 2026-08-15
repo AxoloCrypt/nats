@@ -166,6 +166,29 @@ discovery/*  →  core/engine (Merge, Classify)  →  enrich/*  →  report/*
   `TestGoReleaserConfigDoesNotOverrideVersionLdflags` fails the build if that
   happens. Releases are versioned by tagging, not by editing that literal.
 
+## Git workflow: trunk-based development
+
+`main` is always releasable. Non-trivial changes happen on a short-lived
+feature branch, never directly on `main`:
+
+1. Before writing code, check the working tree and current branch; if the
+   tree is dirty or the branch doesn't match the work about to start, stop
+   and ask rather than guessing.
+2. If on `main`, branch off it first: `git checkout -b <type>/<slug> main`
+   (`feature/`, `fix/`, `chore/` — prefer the story/epic key as the slug,
+   e.g. `feature/4-8-ble-advertisement-dedup`).
+3. Commit incrementally on that branch using this project's existing
+   conventional-commit prefixes (`feat:`, `fix:`, `docs:`, `test:`,
+   `refactor:`, `chore:`).
+4. Never commit directly to `main`. Never merge, push, or open a PR without
+   the user's explicit go-ahead — those are shared-visibility actions.
+5. Delete branches once merged; don't let them accumulate.
+
+Full policy (branch naming, exceptions, how it's wired into BMad agents)
+lives in `docs/development-strategy.md` in the sibling `nats-metarepo`
+repo — restated here because that repo's BMad customization only resolves
+when a workflow's project root is `nats-metarepo` itself, not `~/nats`.
+
 ## Conventions to follow when adding or changing code
 
 - **Privilege checks are live probes, not guesses.** Every technique/enricher
