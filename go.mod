@@ -3,10 +3,12 @@ module nats
 go 1.25.0
 
 require (
+	github.com/go-ole/go-ole v1.2.6
 	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gopacket/gopacket v1.7.0
 	github.com/hashicorp/mdns v1.0.7
 	github.com/koron/go-ssdp v0.9.1
+	github.com/saltosystems/winrt-go v0.0.0-20260317170058-9c2fec580d96
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/net v0.56.0
 	golang.org/x/tools v0.40.0
@@ -14,10 +16,8 @@ require (
 )
 
 require (
-	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
-	github.com/saltosystems/winrt-go v0.0.0-20260317170058-9c2fec580d96 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/soypat/cyw43439 v0.1.0 // indirect
 	github.com/soypat/lneto v0.1.0 // indirect
