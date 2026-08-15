@@ -33,6 +33,23 @@ var stopScanAdapter = func() error {
 	return bluetooth.DefaultAdapter.StopScan()
 }
 
+// startTXPowerTracking and txPowerFor are the seam a platform file uses to
+// source TX Power out-of-band: tinygo.org/x/bluetooth's ScanResult never
+// carries it (see gap_linux.go's makeScanResult, which never reads the
+// property), so a platform that can source it does so independently and
+// reports back through this pair of vars, exactly like
+// enableAdapter/scanAdapter/stopScanAdapter above already do for the rest of
+// the scan lifecycle.
+//
+// startTXPowerTracking must run for no longer than the given context — Scan
+// below derives a child context tied to its own ch-closing paths so a
+// platform's tracking goroutine never outlives the scan it was started for.
+// The OS-agnostic default is a no-op pair: TXPower stays nil, exactly
+// today's behavior, on any platform that hasn't overridden both.
+var startTXPowerTracking = func(ctx context.Context) {}
+
+var txPowerFor = func(address string) *int { return nil }
+
 // Probe empirically attempts to enable the adapter and reports ok=false
 // with a human-readable reason on failure. This is an OS Bluetooth-
 // permission check only — it never checks os.Geteuid() or any
@@ -82,6 +99,15 @@ func (s *scanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Ad
 	ch := make(chan ble.Advertisement)
 	scanDone := make(chan error, 1)
 
+	// txCtx/stopTXPowerTracking give startTXPowerTracking its own
+	// cancellation independent of ctx: ctx may outlive this single Scan call
+	// (a caller can reuse it across scans, or never cancel it at all), but a
+	// tracking goroutine started here must not — it is cancelled explicitly
+	// at every point below where ch is closed, so it never runs past the
+	// scan window it was started for.
+	txCtx, stopTXPowerTracking := context.WithCancel(ctx)
+	startTXPowerTracking(txCtx)
+
 	go func() {
 		scanDone <- scanAdapter(func(result bluetooth.ScanResult) {
 			select {
@@ -100,6 +126,7 @@ func (s *scanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Ad
 		// running, so it never got going. Closing ch here is safe precisely
 		// because scanAdapter has returned: no further callback can fire, so
 		// nothing can send on a closed channel.
+		stopTXPowerTracking()
 		close(ch)
 		if err != nil {
 			return nil, err
@@ -109,6 +136,7 @@ func (s *scanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Ad
 		// an already-closed ch drains to zero advertisements.
 		return ch, nil
 	case <-ctx.Done():
+		stopTXPowerTracking()
 		_ = stopScanAdapter()
 		go func() {
 			defer close(ch)
@@ -126,6 +154,7 @@ func (s *scanner) Scan(ctx context.Context, window time.Duration) (<-chan ble.Ad
 		// closed, so a callback already in flight can never send on a
 		// closed channel.
 		defer close(ch)
+		defer stopTXPowerTracking()
 		timer := time.NewTimer(window)
 		defer timer.Stop()
 		select {
@@ -189,6 +218,8 @@ func toAdvertisement(result bluetooth.ScanResult) ble.Advertisement {
 		adv.CompanyID = &companyID
 		adv.ManufacturerData = chosen.Data
 	}
+
+	adv.TXPower = txPowerFor(adv.Address)
 
 	return adv
 }

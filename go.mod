@@ -3,6 +3,7 @@ module nats
 go 1.25.0
 
 require (
+	github.com/godbus/dbus/v5 v5.1.0
 	github.com/gopacket/gopacket v1.7.0
 	github.com/hashicorp/mdns v1.0.7
 	github.com/koron/go-ssdp v0.9.1
@@ -14,7 +15,6 @@ require (
 
 require (
 	github.com/go-ole/go-ole v1.2.6 // indirect
-	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/saltosystems/winrt-go v0.0.0-20260317170058-9c2fec580d96 // indirect
