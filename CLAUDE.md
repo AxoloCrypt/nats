@@ -10,6 +10,10 @@ devices on the local network and enriches them with identity info
 a report in one of several formats. Entry point: `cmd/cli` (`main.go` just
 calls `Execute()` in `root.go`).
 
+For a change-impact map of this codebase's types/interfaces and pipelines —
+exact `path:line` citations, and what a given change hits or doesn't — see
+[`map/CLAUDE.md`](map/CLAUDE.md).
+
 ## Common commands
 
 ```sh
